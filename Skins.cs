@@ -1,571 +1,1117 @@
-﻿using UnityEngine;
+﻿using System;
 using System.Collections.Generic;
-using System.Linq;
 using Newtonsoft.Json;
+using Oxide.Core;
+using Oxide.Core.Libraries.Covalence;
+using Oxide.Core.Plugins;
+using Oxide.Game.Rust.Cui;
+using UnityEngine;
+using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "MalkoR", "1.2.9", ResourceId = 2431)]
-    [Description("Allow players to change items skin with the skin from steam workshop.")]
+    [Info("Skins", "Iv Misticos", "2.0.0")]
+    [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
-        private string box = "assets/prefabs/deployable/large wood storage/box.wooden.large.prefab";
+        #region Variables
+        
+        private static List<ContainerController> _controllers;
 
-        private Dictionary<string, List<ulong>> SkinsList = new Dictionary<string, List<ulong>>();
-        private List<SkinContainer> Containers = new List<SkinContainer>();
-        private HashSet<int> Boxes = new HashSet<int>();
+        private const string PermissionUse = "skins.use";
+        private const string PermissionAdmin = "skins.admin";
+        
+        #endregion
 
-        #region Oxide hooks
-        void Init()
+        #region Configuration
+
+        private static Configuration _config;
+
+        private class Configuration
         {
-            LoadVariables();
-            cmd.AddChatCommand(configData?.ChatCommand ?? "skin", this, "CmdSkin");
-            cmd.AddConsoleCommand("skin.add", this, "CcmdAddSkin");
-            cmd.AddConsoleCommand("skin.remove", this, "CcmdRemoveSkin");
-            cmd.AddConsoleCommand("skin.list", this, "CcmdListSkin");
-            cmd.AddConsoleCommand("skin.unique", this, "CcmdListUnique");
-            permission.RegisterPermission("skins.allow", this);
-            permission.RegisterPermission("skins.admin", this);
+            [JsonProperty(PropertyName = "Workshop", NullValueHandling = NullValueHandling.Ignore)]
+            public Dictionary<string, List<ulong>> OldSkins = null;
 
+            [JsonProperty(PropertyName = "Command")]
+            public string Command = "skin";
+
+            [JsonProperty(PropertyName = "Skins", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+            public List<SkinItem> Skins = new List<SkinItem> {new SkinItem()};
+
+            [JsonProperty(PropertyName = "Container Panel Name")]
+            public string Panel = "generic";
+
+            [JsonProperty(PropertyName = "Container Capacity")]
+            public int Capacity = 36;
+
+            [JsonProperty(PropertyName = "UI")]
+            public UIConfiguration UI = new UIConfiguration();
+
+            [JsonProperty(PropertyName = "Debug")]
+            public bool Debug = false;
+
+            public class SkinItem
+            {
+                [JsonProperty(PropertyName = "Item Shortname")]
+                // ReSharper disable once MemberCanBePrivate.Local
+                public string Shortname = "shortname";
+
+                [JsonProperty(PropertyName = "Skins", ObjectCreationHandling = ObjectCreationHandling.Replace)]
+                public List<ulong> Skins = new List<ulong> {0};
+
+                public static SkinItem Find(string shortname)
+                {
+                    for (var i = 0; i < _config.Skins.Count; i++)
+                    {
+                        var item = _config.Skins[i];
+                        if (item.Shortname == shortname)
+                            return item;
+                    }
+
+                    return null;
+                }
+            }
+
+            public class UIConfiguration
+            {
+                [JsonProperty(PropertyName = "Background Color")]
+                public string BackgroundColor = "0.18 0.28 0.36";
+
+                [JsonProperty(PropertyName = "Background Anchors")]
+                public Anchors BackgroundAnchors = new Anchors
+                    {AnchorMinX = "1.0", AnchorMinY = "1.0", AnchorMaxX = "1.0", AnchorMaxY = "1.0"};
+
+                [JsonProperty(PropertyName = "Background Offsets")]
+                public Offsets BackgroundOffsets = new Offsets
+                    {OffsetMinX = "-300", OffsetMinY = "-100", OffsetMaxX = "0", OffsetMaxY = "0"};
+                
+                [JsonProperty(PropertyName = "Left Button Text")]
+                public string LeftText = "<size=36><</size>";
+                
+                [JsonProperty(PropertyName = "Left Button Color")]
+                public string LeftColor = "0.11 0.51 0.83";
+
+                [JsonProperty(PropertyName = "Left Button Anchors")]
+                public Anchors LeftAnchors = new Anchors
+                    {AnchorMinX = "0.025", AnchorMinY = "0.05", AnchorMaxX = "0.325", AnchorMaxY = "0.95"};
+                
+                [JsonProperty(PropertyName = "Center Button Text")]
+                public string CenterText = "<size=36>Page: {page}</size>";
+                
+                [JsonProperty(PropertyName = "Center Button Color")]
+                public string CenterColor = "0.11 0.51 0.83";
+
+                [JsonProperty(PropertyName = "Center Button Anchors")]
+                public Anchors CenterAnchors = new Anchors
+                    {AnchorMinX = "0.350", AnchorMinY = "0.05", AnchorMaxX = "0.650", AnchorMaxY = "0.95"};
+                
+                [JsonProperty(PropertyName = "Right Button Text")]
+                public string RightText = "<size=36>></size>";
+                
+                [JsonProperty(PropertyName = "Right Button Color")]
+                public string RightColor = "0.11 0.51 0.83";
+
+                [JsonProperty(PropertyName = "Right Button Anchors")]
+                public Anchors RightAnchors = new Anchors
+                    {AnchorMinX = "0.675", AnchorMinY = "0.05", AnchorMaxX = "0.975", AnchorMaxY = "0.95"};
+
+                public class Anchors
+                {
+                    [JsonProperty(PropertyName = "Anchor Min X")]
+                    public string AnchorMinX = "0.0";
+                    
+                    [JsonProperty(PropertyName = "Anchor Min Y")]
+                    public string AnchorMinY = "0.0";
+                    
+                    [JsonProperty(PropertyName = "Anchor Max X")]
+                    public string AnchorMaxX = "1.0";
+                    
+                    [JsonProperty(PropertyName = "Anchor Max Y")]
+                    public string AnchorMaxY = "1.0";
+
+                    [JsonIgnore]
+                    public string AnchorMin => $"{AnchorMinX} {AnchorMinY}";
+
+                    [JsonIgnore]
+                    public string AnchorMax => $"{AnchorMaxX} {AnchorMaxY}";
+                }
+
+                public class Offsets
+                {
+                    [JsonProperty(PropertyName = "Offset Min X")]
+                    public string OffsetMinX = "0";
+                    
+                    [JsonProperty(PropertyName = "Offset Min Y")]
+                    public string OffsetMinY = "0";
+                    
+                    [JsonProperty(PropertyName = "Offset Max X")]
+                    public string OffsetMaxX = "100";
+                    
+                    [JsonProperty(PropertyName = "Offset Max Y")]
+                    public string OffsetMaxY = "100";
+
+                    [JsonIgnore]
+                    public string OffsetMin => $"{OffsetMinX} {OffsetMinY}";
+
+                    [JsonIgnore]
+                    public string OffsetMax => $"{OffsetMaxX} {OffsetMaxY}";
+                }
+            }
+        }
+
+        protected override void LoadConfig()
+        {
+            base.LoadConfig();
+            try
+            {
+                _config = Config.ReadObject<Configuration>();
+                if (_config == null) throw new Exception();
+                SaveConfig();
+            }
+            catch
+            {
+                PrintError("Your configuration file contains an error. Using default configuration values.");
+                LoadDefaultConfig();
+            }
+        }
+
+        protected override void SaveConfig() => Config.WriteObject(_config);
+
+        protected override void LoadDefaultConfig() => _config = new Configuration();
+        
+        #endregion
+
+        #region Hooks
+
+        protected override void LoadDefaultMessages()
+        {
             lang.RegisterMessages(new Dictionary<string, string>
             {
-                ["NotAllowed"] = "You don't have permission to use this command.",
-                ["ConsoleIncorrectSkinIdFormat"] = "Wrong format for the skinId, this must be numbers.",
-                ["ConsoleItemIsNotFound"] = "Item with shortname {0} is not found.",
-                ["ConsoleItemSkinExist"] = "The skinId {0} is already exist for item {1}",
-                ["ConsoleItemAdded"] = "A new skinId {0} added for item {1}",
-                ["ConsoleRemoveItemNotFound"] = "The item {0} is not found in config file. Nothing to remove.",
-                ["ConsoleRemoveSkinNotFound"] = "The skinId {0} is not found in config file. Nothing to remove.",
-                ["ConsoleRemoveSkinRemoved"] = "The skinId {0} is found in config file and removed.",
-                ["ConsoleListItemNotFound"] = "The item {0} is not found in config file.",
-                ["ConsoleWorkshopLoad"] = "Start to load workshop skins, it'll take some time, please wait.",
-                ["ConsoleWorkshopLoaded"] = "The {0} new skins is loaded and append to config file.",
-                ["ConsoleUniqueSort"] = "All skin duplicates was removed.",
+                { "Not Allowed", "You don't have permission to use this command" },
+                { "Cannot Use", "I'm sorry, you cannot use that right now" },
+                { "Help", "Command usage:\n" +
+                          "skin show - Show skins\n" +
+                          "skin get - Get Skin ID of the item" },
+                { "Admin Help", "Admin command usage:\n" +
+                                "skin show - Show skins\n" +
+                                "skin get - Get Skin ID of the item\n" +
+                                "skin remove (Shortname) (Skin ID) - Remove a skin\n" +
+                                "skin add (Shortname) (Skin ID) - Add a skin" },
+                { "Skin Get Format", "{shortname}'s skin: {id}" },
+                { "Skin Get No Item", "Please, hold the needed item" },
+                { "Incorrect Skin", "You have entered an incorrect skin" },
+                { "Skin Already Exists", "This skin already exists on this item" },
+                { "Skin Does Not Exist", "This skin does not exist" },
+                { "Skin Added", "Skin was successfully added" },
+                { "Skin Removed", "Skin was removed" }
             }, this);
         }
 
-        void Unload()
+        private void Init()
         {
-            List<SkinContainer> ToClose = new List<SkinContainer>();
-            foreach (SkinContainer container in Containers)
-                if (container.status != ContainerStatus.Ready)
-                    ToClose.Add(container);
+            permission.RegisterPermission(PermissionUse, this);
+            permission.RegisterPermission(PermissionAdmin, this);
+            
+            _controllers = new List<ContainerController>();
 
-            foreach(SkinContainer container in ToClose)
-                OnLootEntityEnd(container.inventory.playerOwner, container.storage as BaseCombatEntity);
-        }
-
-        void OnEntityTakeDamage(BaseCombatEntity entity, HitInfo info)
-        {
-            if(Boxes.Contains(entity.GetHashCode()))
-            {
-                info.damageTypes.ScaleAll(0);
-            }
-        }
-
-        void OnItemAddedToContainer(ItemContainer container, Item item)
-        {
-            if (Containers.Exists(c => c.inventory == container))
-            {
-                SkinContainer _skinContainer = Containers.Find(c => c.inventory == container);
-                if (_skinContainer.status == ContainerStatus.Ready)
-                {
-                    BasePlayer owner = _skinContainer.storage.inventory.playerOwner;
-                    if (!SkinsList.ContainsKey(item.info.shortname))
-                        LoadSkinsList(item.info);
-
-                    if (!SkinsList.ContainsKey(item.info.shortname) || SkinsList[item.info.shortname].Count <= 1)
-                    {
-                        item.MoveToContainer(owner.inventory.containerMain);
-                        return;
-                    }
-
-                    _skinContainer.status = ContainerStatus.FilledIn;
-
-                    BaseProjectile ammo = item.GetHeldEntity() as BaseProjectile;
-                    if (ammo != null)
-                    {
-                        ammo.UnloadAmmo(item, owner);
-                        ammo.primaryMagazine.contents = 0;
-                    }
-
-                    if (item.contents != null)
-                    {
-                        List<Item> mods = new List<global::Item>();
-                        foreach (Item mod in item.contents.itemList)
-                            if (mod != null)
-                                mods.Add(mod);
-
-                        foreach (Item mod in mods)
-                            MoveItemBack(mod, owner);
-                    }
-                    item.RemoveFromContainer();
-
-                    NextTick(() =>
-                    {
-                        _skinContainer.storage.inventory.capacity = SkinsList[item.info.shortname].Count;
-                        foreach (int skinId in SkinsList[item.info.shortname])
-                        {
-                            Item i = ItemManager.CreateByItemID(item.info.itemid, item.amount, (ulong)skinId);
-                            i.condition = item.condition;
-                            NextTick(() =>
-                            {
-                                BaseProjectile a = i.GetHeldEntity() as BaseProjectile;
-                                if (a != null)
-                                {
-                                    a.primaryMagazine.contents = 0;
-                                }
-                                _skinContainer.ItemsList.Add(i);
-                                i.MoveToContainer(_skinContainer.storage.inventory, -1, false);
-                                NextTick(() => { _skinContainer.status = ContainerStatus.Filled; });
-                            });
-                        }
-                    });
-                }
-            }
-        }
-
-        object CanMoveItem(Item item, PlayerInventory playerLoot, uint targetContainer, int targetSlot)
-        {
-            if(Containers.Exists(c => c.uid == item.GetRootContainer().uid))
-            {
-                if (playerLoot.containerMain.uid == targetContainer && playerLoot.containerMain.GetSlot(targetSlot) != null)
-                    return false;
-                if (playerLoot.containerBelt.uid == targetContainer && playerLoot.containerBelt.GetSlot(targetSlot) != null)
-                    return false;
-                if (playerLoot.containerWear.uid == targetContainer && playerLoot.containerWear.GetSlot(targetSlot) != null)
-                    return false;
-            }
-
-            SkinContainer targetSkinContainer = Containers.Find(c => c.uid == targetContainer);
-            if(targetSkinContainer != null)
-            {
-                if(targetSkinContainer.status != ContainerStatus.Ready)
-                {
-                    return false;
-                }
-            }
-            return null;
-        }
-
-        object CanAcceptItem(ItemContainer container, Item item)
-        {
-            if (Containers.Exists(c => c.inventory == container && c.status != ContainerStatus.Ready))
-            {
-                return false;
-            }
-            return true;
-        }
-
-        void OnItemSplit(Item item, int amount)
-        {
-            if (Containers.Exists(c => c.inventory == item.GetRootContainer() && c.status != ContainerStatus.FilledIn))
-            {
-                NextTick(() =>
-                {
-                    SkinContainer _skinContainer = Containers.Find(c => c.inventory == item.GetRootContainer());
-                    int new_amount = 0;
-                    foreach (Item i in _skinContainer.inventory.itemList)
-                        new_amount = (new_amount == 0) ? i.amount : (i.amount < new_amount) ? i.amount : new_amount;
-                    foreach (Item i in _skinContainer.inventory.itemList)
-                        i.amount = new_amount;
-                });
-            }
-        }
-
-        void OnItemRemovedFromContainer(ItemContainer container, Item item)
-        {
-            if (Containers.Exists(c => c.inventory == container))
-            {
-                SkinContainer _skinContainer = Containers.Find(c => c.inventory == container);
-                if (_skinContainer.status == ContainerStatus.Filled)
-                {
-                    foreach(Item i in _skinContainer.ItemsList)
-                    {
-                        if (i == item) continue;
-                        i.Remove(0f);
-                    }
-                    _skinContainer.ItemsList = new List<Item>();
-                    _skinContainer.storage.inventory.capacity = 1;
-                    _skinContainer.status = ContainerStatus.Ready;
-                }
-            }
-        }
-
-        void OnLootEntityEnd(BasePlayer player, BaseCombatEntity entity)
-        {
-            SkinContainer container = Containers.Find(c => c.hashCode == entity.GetHashCode());
-            if(container != null)
-            {
-                if(container.status != ContainerStatus.Ready)
-                {
-                    Item item = container.inventory.GetSlot(0);
-                    if(item != null) container.inventory.GetOwnerPlayer().GiveItem(item);
-                }
-                container.storage.KillMessage();
-                Boxes.Remove(entity.GetHashCode());
-                Containers.Remove(container);
-            }
-        }
-
-        object CanNetworkTo(BaseNetworkable entity, BasePlayer target)
-        {
-            if (Boxes.Contains(entity.GetHashCode()))
-                return false;
-            return null;
-        }
-        #endregion
-
-        #region Console command
-        void CcmdAddSkin(ConsoleSystem.Arg arg)
-        {
-            BasePlayer player = arg.Player();
-            if(player is BasePlayer && !player.IsAdmin && !permission.UserHasPermission(player.UserIDString, "skins.admin"))
-            {
-                SendReply(player, lang.GetMessage("NotAllowed", this, player.UserIDString));
-            }
-
-            string userIDString = (player is BasePlayer) ? player.UserIDString : null;
-
-            string[] args = arg.Args;
-            if(args.Length == 2)
-            {
-                string shortname = args.ElementAtOrDefault(0);
-                ulong skinId = 0;
-                ulong.TryParse(args.ElementAtOrDefault(1), out skinId);
-                ItemDefinition def = ItemManager.FindItemDefinition(shortname);
-
-                if(skinId == 0)
-                {
-                    SendReply(arg, lang.GetMessage("ConsoleIncorrectSkinIdFormat", this, userIDString));
-                    return;
-                }
-                else if (def != null)
-                {
-                    if(!SkinsList.ContainsKey(shortname))
-                    {
-                        LoadSkinsList(def);
-                    }
-                    if(SkinsList[shortname].Contains(skinId))
-                    {
-                        SendReply(arg, lang.GetMessage("ConsoleItemSkinExist", this, userIDString), skinId, def.displayName.english);
-                        return;
-                    }
-                    else
-                    {
-                        SkinsList[shortname].Add(skinId);
-                        SendReply(arg, lang.GetMessage("ConsoleItemAdded", this, userIDString), skinId, def.displayName.english);
-                        if(!configData.Workshop.ContainsKey(def.shortname))
-                        {
-                            configData.Workshop.Add(shortname, new List<ulong>() { (ulong)skinId });
-                        }
-                        else
-                        {
-                            configData.Workshop[shortname].Add((ulong)skinId);
-                        }
-                        SaveConfig(configData);
-                        return;
-                    }
-                }
-                else
-                {
-                    SendReply(arg, lang.GetMessage("ConsoleItemIsNotFound", this, userIDString),  shortname);
-                    return;
-                }
-            }
-        }
-
-        void CcmdRemoveSkin(ConsoleSystem.Arg arg)
-        {
-            BasePlayer player = arg.Player();
-            if (player is BasePlayer && !player.IsAdmin && !permission.UserHasPermission(player.UserIDString, "skins.admin"))
-            {
-                SendReply(player, lang.GetMessage("NotAllowed", this, player.UserIDString));
-            }
-
-            string userIDString = (player is BasePlayer) ? player.UserIDString : null;
-
-            string[] args = arg.Args;
-            if (args.Length == 2)
-            {
-                string shortname = args.ElementAtOrDefault(0);
-                ulong skinId = 0;
-                ulong.TryParse(args.ElementAtOrDefault(1), out skinId);
-
-                if (!configData.Workshop.ContainsKey(shortname))
-                {
-                    SendReply(arg, lang.GetMessage("ConsoleRemoveItemNotFound", this, userIDString), shortname);
-                }
-                else if (!configData.Workshop[shortname].Contains(skinId))
-                {
-                    SendReply(arg, lang.GetMessage("ConsoleRemoveSkinNotFound", this, userIDString), skinId);
-                }
-                else
-                {
-                    configData.Workshop[shortname].Remove(skinId);
-                    if (configData.Workshop[shortname].Count == 0)
-                        configData.Workshop.Remove(shortname);
-
-                    SendReply(arg, lang.GetMessage("ConsoleRemoveSkinRemoved", this, userIDString), skinId);
-                    SaveConfig(configData);
-                }
-            }
-        }
-
-        void CcmdListSkin(ConsoleSystem.Arg arg)
-        {
-            BasePlayer player = arg.Player();
-            if (player is BasePlayer && !player.IsAdmin && !permission.UserHasPermission(player.UserIDString, "skins.admin"))
-            {
-                SendReply(player, lang.GetMessage("NotAllowed", this, player.UserIDString));
-            }
-
-            string userIDString = (player is BasePlayer) ? player.UserIDString : null;
-
-            if (arg.Args == null)
-            {
-                foreach (string name in configData.Workshop.Keys)
-                    SendReply(arg, $"{name}");
+            if (_config.OldSkins == null)
                 return;
-            }
-            string[] args = arg.Args;
-            if (args.Length == 1)
+            
+            foreach (var kvp in _config.OldSkins)
             {
-                string shortname = args.ElementAtOrDefault(0);
-                if (!configData.Workshop.ContainsKey(shortname))
+                var skinItem = Configuration.SkinItem.Find(kvp.Key);
+                if (skinItem == null)
                 {
-                    SendReply(arg, lang.GetMessage("ConsoleListItemNotFound", this, userIDString), shortname);
+                    _config.Skins.Add(new Configuration.SkinItem {Shortname = kvp.Key, Skins = kvp.Value});
+                    continue;
                 }
-                else
-                {
-                    foreach (ulong skinId in configData.Workshop[shortname])
-                        SendReply(arg, $"ID: {skinId}");
-                }
-            }
-        }
-
-        void CcmdListUnique(ConsoleSystem.Arg arg)
-        {
-            BasePlayer player = arg.Player();
-            if (player is BasePlayer && !player.IsAdmin && !permission.UserHasPermission(player.UserIDString, "skins.admin"))
-            {
-                SendReply(player, lang.GetMessage("NotAllowed", this, player.UserIDString));
-            }
-            string userIDString = (player is BasePlayer) ? player.UserIDString : null;
-
-            Dictionary<string, List<ulong>> new_list = new Dictionary<string, List<ulong>>();
-            foreach(KeyValuePair<string, List<ulong>> row in configData.Workshop)
-            {
-                new_list.Add(row.Key, row.Value.Distinct().ToList());
-            }
-            configData.Workshop = new_list;
-            SaveConfig(configData);
-            foreach(string shortname in new_list.Keys)
-            {
-                LoadSkinsList(ItemManager.FindItemDefinition(shortname));
+                
+                skinItem.Skins.AddRange(kvp.Value);
             }
 
-            SendReply(arg, lang.GetMessage("ConsoleUniqueSort", this, userIDString));
-        }
-
-        void CcmdWorkshopLoad(ConsoleSystem.Arg arg)
-        {
-            BasePlayer player = arg.Player();
-            if (player is BasePlayer && !player.IsAdmin && !permission.UserHasPermission(player.UserIDString, "skins.admin"))
-            {
-                SendReply(player, lang.GetMessage("NotAllowed", this, player.UserIDString));
-            }
-
-            string userIDString = (player is BasePlayer) ? player.UserIDString : null;
-
-            SendReply(arg, lang.GetMessage("ConsoleWorkshopLoad", this, userIDString));
-
-            webrequest.EnqueueGet("http://s3.amazonaws.com/s3.playrust.com/icons/inventory/rust/schema.json", (code, response) =>
-            {
-                if (!(response == null && code == 200))
-                {
-                    var schema = JsonConvert.DeserializeObject<Rust.Workshop.ItemSchema>(response);
-                    var items = schema.items;
-                    int added_count = 0;
-                    foreach (var item in items)
-                    {
-                        if(item.workshopid != null && item.itemshortname != null)
-                        {
-                            ulong workshopid = ulong.Parse(item.workshopid);
-                            string shortname = item.itemshortname;
-
-                            if (!configData.Workshop.ContainsKey(shortname))
-                                configData.Workshop.Add(shortname, new List<ulong>());
-
-                            if (!configData.Workshop[shortname].Contains(workshopid))
-                            {
-                                configData.Workshop[item.itemshortname].Add(workshopid);
-                                added_count += 1;
-                            }
-
-                            if (!SkinsList.ContainsKey(item.itemshortname))
-                                SkinsList.Add(item.itemshortname, new List<ulong>());
-
-                            if (!SkinsList[shortname].Contains(workshopid))
-                                SkinsList[shortname].Add(workshopid);
-                        }
-                    }
-                    SaveConfig(configData);
-                    SendReply(arg, lang.GetMessage("ConsoleWorkshopLoaded", this, userIDString), added_count);
-                }
-            }, this);
-        }
-        #endregion
-
-        #region Chat command
-        void CmdSkin(BasePlayer player)
-        {
-            if (!player.IsAdmin && !permission.UserHasPermission(player.UserIDString, "skins.allow"))
-            {
-                SendReply(player, lang.GetMessage("NotAllowed", this, player.UserIDString));
-                return;
-            }
-            SkinContainer container = SpawnContainer(player);
-            timer.In(0.25f, () =>
-            {
-                PlayerLootContainer(player, container.storage);
-            });
-        }
-        #endregion
-
-        #region Helpers
-        void LoadSkinsList(ItemDefinition def)
-        {
-            if (SkinsList.ContainsKey(def.shortname))
-                SkinsList.Remove(def.shortname);
-            List<ulong> ids = new List<ulong>() { 0 };
-            if (!configData.PreventDefaultSkins)
-            {
-                ItemSkinDirectory.Skin[] skins = ItemSkinDirectory.ForItem(def);
-                List<string> uniqSkins = new List<string>();
-                foreach (ItemSkinDirectory.Skin skin in skins)
-                {
-                    if (!skin.isSkin) continue;
-                    if (uniqSkins.Contains(skin.name)) continue;
-                    uniqSkins.Add(skin.name);
-                    ids.Add((ulong)skin.id);
-                }
-            }
-            if(configData.Workshop.ContainsKey(def.shortname))
-            {
-                foreach (ulong wid in configData.Workshop[def.shortname])
-                    ids.Add(wid);
-            }
-            SkinsList.Add(def.shortname, ids);
-        }
-
-        private SkinContainer SpawnContainer(BasePlayer player)
-        {
-            Vector3 pos = player.transform.position;
-            BaseEntity ent = GameManager.server.CreateEntity(box, new Vector3(pos.x, pos.y - 2000, pos.z));
-            Boxes.Add(ent.GetHashCode());
-            ent.Spawn();
-            StorageContainer storage = ent.GetComponent<StorageContainer>();
-            storage.inventory.playerOwner = player;
-            storage.inventory.capacity = 1;
-            storage.SetFlag(BaseEntity.Flags.Locked, true);
-            SkinContainer c = new SkinContainer()
-            {
-                hashCode = ent.GetHashCode(),
-                storage = storage,
-                inventory = storage.inventory,
-                uid = storage.inventory.uid,
-                playerId = player.userID,
-                status = ContainerStatus.Ready
-            };
-            Containers.Add(c);
-            return c;
-        }
-
-        private static void PlayerLootContainer(BasePlayer player, StorageContainer container)
-        {
-            container.SetFlag(BaseEntity.Flags.Open, true, false);
-            player.inventory.loot.StartLootingEntity(container, false);
-            player.inventory.loot.AddContainer(container.inventory);
-            player.inventory.loot.SendImmediate();
-            player.ClientRPCPlayer(null, player, "RPC_OpenLootPanel", container.panelName);
-        }
-
-        private void MoveItemBack(Item item, BasePlayer player)
-        {
-            bool moved = false;
-
-            if (player.inventory.containerMain.CanTake(item))
-            {
-                item.MoveToContainer(player.inventory.containerMain);
-                moved = true;
-            }
-            if (!moved && player.inventory.containerBelt.CanTake(item))
-            {
-                item.MoveToContainer(player.inventory.containerBelt);
-                moved = true;
-            }
-            if (!moved)
-            {
-                item.Drop(player.eyes.position, player.eyes.BodyForward() * 2f);
-            }
-        }
-        #endregion
-
-        #region Config
-        private ConfigData configData;
-        class ConfigData
-        {
-            public string ChatCommand;
-            public bool PreventDefaultSkins;
-            public Dictionary<string, List<ulong>> Workshop = new Dictionary<string, List<ulong>>();
-        }
-
-        private void LoadVariables()
-        {
-            LoadConfigVariables();
+            _config.OldSkins = null;
             SaveConfig();
         }
 
-        protected override void LoadDefaultConfig()
+        private void OnServerInitialized()
         {
-            var config = new ConfigData
+            for (var i = 0; i < BasePlayer.activePlayerList.Count; i++)
             {
-                ChatCommand = "skin",
-                PreventDefaultSkins = false,
-                Workshop = new Dictionary<string, List<ulong>>()
-            };
-            SaveConfig(config);
+                var player = BasePlayer.activePlayerList[i];
+                OnPlayerInit(player);
+            }
+
+            AddCovalenceCommand(_config.Command, nameof(CommandSkin));
         }
 
-        private void LoadConfigVariables() => configData = Config.ReadObject<ConfigData>();
-        void SaveConfig(ConfigData config) => Config.WriteObject(config, true);
+        private void Unload()
+        {
+            for (var i = _controllers.Count - 1; i >= 0; i--)
+            {
+                var container = _controllers[i];
+                container.Destroy();
+                
+                _controllers.RemoveAt(i);
+            }
+
+            _controllers = null;
+            _config = null;
+        }
+
+        private void OnPlayerInit(BasePlayer player)
+        {
+            if (ContainerController.FindIndex(player) != -1)
+                return;
+            
+            _controllers.Add(new ContainerController(player)); // lol
+        }
+
+        private void OnPlayerDisconnected(BasePlayer player)
+        {
+            var index = ContainerController.FindIndex(player);
+            if (index == -1)
+                return;
+            
+            var container = _controllers[index];
+            container.Destroy();
+            
+            _controllers.RemoveAt(index);
+        }
+
+        #region Working With Containers
+
+        private void OnItemAddedToContainer(ItemContainer itemContainer, Item item)
+        {
+            if (item.parentItem != null)
+                return;
+
+            var player = itemContainer.GetOwnerPlayer();
+            var container = ContainerController.Find(itemContainer);
+            if (container == null || player != null)
+                return;
+            
+            PrintDebug($"OnItemAddedToContainer {item.info.shortname} {item.position}");
+
+            if (itemContainer.itemList.Count != 1)
+            {
+                item.position = -1;
+                container.GiveItemBack();
+            }
+
+            item.position = 0;
+            container.RemoveContent(item);
+            container.UpdateContent(0);
+        }
+
+        private void OnItemRemovedFromContainer(ItemContainer itemContainer, Item item)
+        {
+            if (item.parentItem != null)
+                return;
+            
+            var player = itemContainer.entityOwner as BasePlayer;
+            var container = ContainerController.Find(itemContainer);
+            if (container == null)
+            {
+                PrintDebug("Container not found");
+                return;
+            }
+
+            if (player == null)
+            {
+                PrintDebug("Player not found");
+                return;
+            }
+
+            if (container.Owner != player)
+            {
+                PrintDebug("Wrong container owner");
+                return;
+            }
+            
+            PrintDebug($"OnItemRemovedFromContainer {item.info.shortname} {item.position}");
+            
+            container.SetupContent(item);
+            container.Clear();
+        }
+
+        private void OnPlayerLootEnd(PlayerLoot loot)
+        {
+            PrintDebug("OnLootEntityEnd");
+
+            var player = loot.gameObject.GetComponent<BasePlayer>();
+            if (player != loot.entitySource)
+                return;
+            
+            var container = ContainerController.Find(player);
+            if (container == null)
+                return;
+            
+            PrintDebug("Ended looting container");
+            container.Close();
+        }
+
+        private object CanLootPlayer(BasePlayer looter, Object target)
+        {
+            if (looter != target)
+                return null;
+
+            var container = ContainerController.Find(looter);
+            if (container == null || !container.IsOpened)
+                return null;
+
+            return true;
+        }
+
         #endregion
 
-        #region Nested classes
-        class SkinContainer
+        [HookMethod(nameof(SkinsClose))]
+        private void SkinsClose(BasePlayer player)
         {
-            public StorageContainer storage;
-            public ItemContainer inventory;
-            public ContainerStatus status;
-            public List<Item> ItemsList = new List<Item>();
-            public int hashCode;
-            public ulong playerId;
-            public uint uid;
+            if (player == null)
+                return;
+            
+            ContainerController.Find(player)?.Close();
+        }
+        
+        #endregion
+
+        #region Commands
+
+        private void CommandSkin(IPlayer player, string command, string[] args)
+        {
+            PrintDebug("Executed Skin command");
+            
+            if (!CanUse(player))
+            {
+                PrintDebug("Not allowed");
+                player.Reply(GetMsg("Not Allowed", player.Id));
+                return;
+            }
+
+            if (args.Length == 0)
+                args = new[] {"show"}; // :P strange yeah
+
+            var isAdmin = player.IsServer || CanUseAdmin(player);
+            var basePlayer = player.Object as BasePlayer;
+            var isPlayer = basePlayer != null;
+            
+            PrintDebug($"Arguments: {string.Join(" ", args)}");
+            PrintDebug($"Is Admin: {isAdmin} : Is Player: {isPlayer}");
+            
+            switch (args[0].ToLower())
+            {
+                case "_tech-update":
+                {
+                    int page;
+                    if (args.Length != 2 || !isPlayer || !int.TryParse(args[1], out page))
+                        break;
+
+                    var container = ContainerController.Find(basePlayer);
+
+                    container?.UpdateContent(page);
+                    break;
+                }
+                    
+                case "show":
+                case "s":
+                {
+                    if (!isPlayer)
+                    {
+                        PrintDebug("Not a player");
+                        player.Reply(GetMsg("Cannot Use", player.Id));
+                        break;
+                    }
+
+                    var container = ContainerController.Find(basePlayer);
+                    if (container == null || !container.CanShow())
+                    {
+                        PrintDebug("Cannot show container or container not found");
+                        player.Reply(GetMsg("Cannot Use", player.Id));
+                        break;
+                    }
+
+                    timer.Once(0.5f, () => container.Show());
+                    break;
+                }
+
+                case "add":
+                case "a":
+                {
+                    if (args.Length != 3)
+                        goto default;
+
+                    if (!isAdmin)
+                    {
+                        PrintDebug("Not an admin");
+                        player.Reply(GetMsg("Not Allowed", player.Id));
+                        break;
+                    }
+
+                    var shortname = args[1];
+                    ulong skin;
+                    if (!ulong.TryParse(args[2], out skin))
+                    {
+                        PrintDebug("Invalid skin");
+                        player.Reply(GetMsg("Incorrect Skin", player.Id));
+                        break;
+                    }
+                    
+                    LoadConfig();
+
+                    var skinData = Configuration.SkinItem.Find(shortname);
+                    if (skinData == null)
+                    {
+                        skinData = new Configuration.SkinItem {Shortname = shortname};
+                        _config.Skins.Add(skinData);
+                    }
+
+                    if (skinData.Skins.Contains(skin))
+                    {
+                        PrintDebug("Skin already exists");
+                        player.Reply(GetMsg("Skin Already Exists", player.Id));
+                        break;
+                    }
+                    
+                    skinData.Skins.Add(skin);
+                    player.Reply(GetMsg("Skin Added", player.Id));
+                    
+                    SaveConfig();
+                    PrintDebug("Added skin");
+                    break;
+                }
+
+                case "remove":
+                case "delete":
+                case "r":
+                case "d":
+                {
+                    if (args.Length != 3)
+                        goto default;
+
+                    if (!isAdmin)
+                    {
+                        PrintDebug("Not an admin");
+                        player.Reply(GetMsg("Not Allowed", player.Id));
+                        break;
+                    }
+
+                    var shortname = args[1];
+                    ulong skin;
+                    if (!ulong.TryParse(args[2], out skin))
+                    {
+                        PrintDebug("Invalid skin");
+                        player.Reply(GetMsg("Incorrect Skin", player.Id));
+                        break;
+                    }
+                    
+                    LoadConfig();
+
+                    var skinData = Configuration.SkinItem.Find(shortname);
+                    int index;
+                    if (skinData == null || (index = skinData.Skins.IndexOf(skin)) == -1)
+                    {
+                        PrintDebug("Skin doesnt exist");
+                        player.Reply(GetMsg("Skin Does Not Exist", player.Id));
+                        break;
+                    }
+                    
+                    skinData.Skins.RemoveAt(index);
+                    player.Reply(GetMsg("Skin Removed", player.Id));
+                    
+                    SaveConfig();
+                    PrintDebug("Removed skin");
+                    break;
+                }
+
+                case "get":
+                case "g":
+                {
+                    if (!isPlayer)
+                    {
+                        PrintDebug("Not a player");
+                        player.Reply(GetMsg("Cannot Use", player.Id));
+                        break;
+                    }
+
+                    var item = basePlayer.GetActiveItem();
+                    if (item == null || !item.IsValid())
+                    {
+                        PrintDebug("Invalid item");
+                        player.Reply(GetMsg("Skin Get No Item", player.Id));
+                        break;
+                    }
+
+                    player.Reply(GetMsg("Skin Get Format", player.Id).Replace("{shortname}", item.info.shortname)
+                        .Replace("{id}", item.skin.ToString()));
+                    
+                    break;
+                }
+
+                default: // and "help", and all other args
+                {
+                    PrintDebug("Unknown command");
+                    player.Reply(GetMsg(isAdmin ? "Admin Help" : "Help", player.Id));
+                    break;
+                }
+            }
         }
 
-        public enum ContainerStatus
+        #endregion
+        
+        #region Controller
+
+        private class ContainerController
         {
-            Ready = 0,
-            FilledIn = 1,
-            Filled = 2
+            /*
+             * Basic tips:
+             * Item with slot 0: Player's skin item
+             */
+            
+            public BasePlayer Owner;
+            private ItemContainer _container;
+            public bool IsOpened = false;
+
+            private List<Item> _storedContent;
+
+            #region Search
+
+            // ReSharper disable once SuggestBaseTypeForParameter
+            public static int FindIndex(BasePlayer player)
+            {
+                if (!CanShow(player))
+                    goto none;
+                
+                for (var i = 0; i < _controllers.Count; i++)
+                {
+                    if (_controllers[i].Owner == player)
+                    {
+                        return i;
+                    }
+                }
+
+                none:
+                return -1;
+            }
+
+            public static ContainerController Find(BasePlayer player)
+            {
+                var index = FindIndex(player);
+                return index == -1 ? null : _controllers[index];
+            }
+
+            // ReSharper disable once SuggestBaseTypeForParameter
+            private static int FindIndex(ItemContainer container)
+            {
+                if (container == null)
+                    goto none;
+                
+                for (var i = 0; i < _controllers.Count; i++)
+                {
+                    if (_controllers[i]._container == container)
+                    {
+                        return i;
+                    }
+                }
+
+                none:
+                return -1;
+            }
+
+            public static ContainerController Find(ItemContainer container)
+            {
+                var index = FindIndex(container);
+                return index == -1 ? null : _controllers[index];
+            }
+            
+            #endregion
+
+            public ContainerController(BasePlayer player)
+            {
+                Owner = player;
+                _storedContent = new List<Item>();
+                
+                _container = new ItemContainer
+                {
+                    entityOwner = Owner,
+                    capacity = _config.Capacity,
+                    isServer = true,
+                    allowedContents = ItemContainer.ContentsType.Generic
+                };
+                
+                _container.GiveUID();
+            }
+
+            private void DestroyUI()
+            {
+                PrintDebug("Started UI destroy");
+                CuiHelper.DestroyUi(Owner, "Skins.Background");
+            }
+
+            private void DrawUI(int page)
+            {
+                PrintDebug("Started UI draw");
+                var elements = new CuiElementContainer();
+
+                var background = new CuiElement
+                {
+                    Name = "Skins.Background",
+                    Parent = "Overlay",
+                    Components =
+                    {
+                        new CuiImageComponent
+                        {
+                            Color = _config.UI.BackgroundColor
+                        },
+                        new CuiRectTransformComponent
+                        {
+                            AnchorMin = _config.UI.BackgroundAnchors.AnchorMin,
+                            AnchorMax = _config.UI.BackgroundAnchors.AnchorMax,
+                            OffsetMin = _config.UI.BackgroundOffsets.OffsetMin,
+                            OffsetMax = _config.UI.BackgroundOffsets.OffsetMax
+                        }
+                    },
+                    FadeOut = 0.5f
+                };
+
+                var left = new CuiElement
+                {
+                    Name = "Skins.Left",
+                    Parent = background.Name,
+                    Components =
+                    {
+                        new CuiButtonComponent
+                        {
+                            Close = background.Name,
+                            Command = $"{_config.Command} _tech-update {page - 1}",
+                            Color = _config.UI.LeftColor
+                        },
+                        new CuiRectTransformComponent
+                        {
+                            AnchorMin = _config.UI.LeftAnchors.AnchorMin,
+                            AnchorMax = _config.UI.LeftAnchors.AnchorMax
+                        }
+                    },
+                    FadeOut = 0.5f
+                };
+
+                var leftText = new CuiElement
+                {
+                    Name = "Skins.Left.Text",
+                    Parent = left.Name,
+                    Components =
+                    {
+                        new CuiTextComponent
+                        {
+                            Text = _config.UI.LeftText,
+                            Align = TextAnchor.MiddleCenter
+                        },
+                        new CuiRectTransformComponent
+                        {
+                            AnchorMin = "0 0",
+                            AnchorMax = "1 1"
+                        }
+                    },
+                    FadeOut = 0.5f
+                };
+
+                var center = new CuiElement
+                {
+                    Name = "Skins.Center",
+                    Parent = background.Name,
+                    Components =
+                    {
+                        new CuiImageComponent
+                        {
+                            Color = _config.UI.CenterColor
+                        },
+                        new CuiRectTransformComponent
+                        {
+                            AnchorMin = _config.UI.CenterAnchors.AnchorMin,
+                            AnchorMax = _config.UI.CenterAnchors.AnchorMax
+                        }
+                    },
+                    FadeOut = 0.5f
+                };
+
+                var centerText = new CuiElement
+                {
+                    Name = "Skins.Center.Text",
+                    Parent = center.Name,
+                    Components =
+                    {
+                        new CuiTextComponent
+                        {
+                            Text = _config.UI.CenterText.Replace("{page}", $"{page + 1}"),
+                            Align = TextAnchor.MiddleCenter
+                        },
+                        new CuiRectTransformComponent
+                        {
+                            AnchorMin = "0 0",
+                            AnchorMax = "1 1"
+                        }
+                    },
+                    FadeOut = 0.5f
+                };
+
+                var right = new CuiElement
+                {
+                    Name = "Skins.Right",
+                    Parent = background.Name,
+                    Components =
+                    {
+                        new CuiButtonComponent
+                        {
+                            Close = background.Name,
+                            Command = $"{_config.Command} _tech-update {page + 1}",
+                            Color = _config.UI.RightColor
+                        },
+                        new CuiRectTransformComponent
+                        {
+                            AnchorMin = _config.UI.RightAnchors.AnchorMin,
+                            AnchorMax = _config.UI.RightAnchors.AnchorMax
+                        }
+                    },
+                    FadeOut = 0.5f
+                };
+
+                var rightText = new CuiElement
+                {
+                    Name = "Skins.Right.Text",
+                    Parent = right.Name,
+                    Components =
+                    {
+                        new CuiTextComponent
+                        {
+                            Text = _config.UI.RightText,
+                            Align = TextAnchor.MiddleCenter
+                        },
+                        new CuiRectTransformComponent
+                        {
+                            AnchorMin = "0 0",
+                            AnchorMax = "1 1"
+                        }
+                    },
+                    FadeOut = 0.5f
+                };
+                
+                elements.Add(background);
+                elements.Add(left);
+                elements.Add(leftText);
+                elements.Add(center);
+                elements.Add(centerText);
+                elements.Add(right);
+                elements.Add(rightText);
+
+                PrintDebug("Started UI send");
+                CuiHelper.AddUi(Owner, elements);
+                PrintDebug("UI sent");
+            }
+
+            public void Close()
+            {
+                PrintDebug("Closing container");
+                
+                GiveItemBack();
+                Clear();
+                DestroyUI();
+                
+                IsOpened = false;
+            }
+
+            public void Show()
+            {
+                PrintDebug("Started container Show");
+
+                if (!CanUse())
+                    return;
+                
+                IsOpened = true;
+                UpdateContent(0);
+                
+                var loot = Owner.inventory.loot;
+                
+                loot.Clear();
+                loot.PositionChecks = false;
+                loot.entitySource = Owner;
+                loot.itemSource = null;
+                loot.AddContainer(_container);
+                loot.SendImmediate();
+                
+                Owner.ClientRPCPlayer(null, Owner, "RPC_OpenLootPanel", _config.Panel);
+            }
+            
+            #region Can Show
+
+            public bool CanShow()
+            {
+                return CanShow(Owner);
+            }
+
+            private static bool CanShow(BaseCombatEntity player)
+            {
+                return player != null && !player.IsDead();
+            }
+            
+            #endregion
+
+            public void GiveItemBack()
+            {
+                if (!IsValid())
+                    return;
+                
+                PrintDebug("Trying to give item back..");
+
+                var item = _container.GetSlot(0);
+                if (item == null)
+                {
+                    PrintDebug("Invalid item");
+                    return;
+                }
+
+                MoveItem(item, Owner.inventory.containerMain, -1);
+                SetupContent(item);
+                PrintDebug("Gave item back");
+            }
+
+            public void SetupContent(Item destination)
+            {
+                PrintDebug("Setting up content");
+                
+                var contents = destination.contents?.itemList;
+                if (contents == null)
+                {
+                    PrintDebug("Contents null");
+                    return;
+                }
+                
+                for (var i = _storedContent.Count - 1; i >= 0; i--)
+                {
+                    var item = _storedContent[i];
+                    item.parent = destination.contents;
+                    _storedContent.RemoveAt(i);
+                    contents.Add(item);
+                }
+            }
+
+            public void RemoveContent(Item source)
+            {
+                PrintDebug("Removing content");
+                
+                var contents = source.contents?.itemList;
+                if (contents == null)
+                {
+                    PrintDebug("Contents null");
+                    return;
+                }
+
+                for (var i = contents.Count - 1; i >= 0; i--)
+                {
+                    var item = contents[i];
+                    item.parent = null;
+                    contents.RemoveAt(i);
+                    _storedContent.Add(item);
+                }
+            }
+
+            public void Clear()
+            {
+                PrintDebug("Clearing container");
+                
+                for (var i = 0; i < _container.itemList.Count; i++)
+                {
+                    var item = _container.itemList[i];
+                    RemoveItem(item);
+                }
+                
+                _container.itemList.Clear();
+                _container.MarkDirty();
+            }
+
+            public void Destroy()
+            {
+                Close();
+                _container.Kill();
+                
+                PrintDebug("Destroyed container");
+            }
+
+            public void UpdateContent(int page)
+            {
+                if (!IsValid())
+                {
+                    PrintDebug("Invalid container");
+                    return;
+                }
+                
+                var source = _container.GetSlot(0);
+                if (source == null)
+                {
+                    PrintDebug("Source item is null");
+                    return;
+                }
+
+                var skinData = Configuration.SkinItem.Find(source.info.shortname);
+                if (skinData == null)
+                    return;
+
+                var skins = skinData.Skins;
+                var perPage = _container.capacity - 1;
+
+                if (page < 0)
+                    page = 0;
+                
+                var offset = perPage * page;
+                if (offset > skinData.Skins.Count)
+                {
+                    page--;
+                    offset -= perPage;
+                }
+
+                _container.itemList.Remove(source);
+                for (var i = 0; i < source.info.itemMods.Length; i++)
+                {
+                    var itemMod = source.info.itemMods[i];
+                    itemMod.OnParentChanged(source);
+                }
+
+                PrintDebug($"Updating content with {page} page");
+                Clear();
+                
+                MoveItem(source, _container, 0);
+                DestroyUI();
+                DrawUI(page);
+
+                var slot = 1;
+                for (var i = 0; i < skins.Count; i++)
+                {
+                    if (slot > _container.capacity)
+                        break;
+
+                    if (offset > i)
+                        continue;
+
+                    var skin = skins[i];
+                    var duplicate = GetDuplicateItem(source, skin);
+                    
+                    MoveItem(duplicate, _container, slot++);
+                }
+                
+                PrintDebug("Changed content");
+            }
+
+            private bool IsValid() => Owner == null || _container?.itemList != null;
+
+            private bool CanUse()
+            {
+                var result = Interface.CallHook("CanUseSkins", Owner.IPlayer.Id);
+                if (!(result is bool))
+                    return true;
+                
+                PrintDebug($"Hook result: {result}");
+                return (bool) result;
+            }
+            
+            #region Working with items
+
+            private Item GetDuplicateItem(Item item, ulong skin)
+            {
+                PrintDebug($"Getting duplicate for {item.info.shortname}..");
+
+                var duplicate = ItemManager.Create(item.info, item.amount, skin);
+                if (item.hasCondition)
+                {
+                    PrintDebug("Setting condition");
+                    duplicate._maxCondition = item._maxCondition;
+                    duplicate._condition = item._condition;
+                }
+
+                if (item.contents != null)
+                {
+                    PrintDebug("Setting contents");
+                    duplicate.contents.capacity = item.contents.capacity;
+                }
+
+                var projectile = item.GetHeldEntity() as BaseProjectile;
+                var projectileDuplicate = duplicate.GetHeldEntity() as BaseProjectile;
+                if (projectile == null || projectileDuplicate == null)
+                    return duplicate;
+                
+                projectileDuplicate.primaryMagazine = projectile.primaryMagazine;
+                return duplicate;
+            }
+
+            private void MoveItem(Item item, ItemContainer container, int slot)
+            {
+                var parent = item.parent;
+                parent?.itemList?.Remove(item);
+
+                item.RemoveFromContainer();
+                item.RemoveFromWorld();
+
+                item.position = slot;
+                item.parent = container;
+
+                container.itemList.Add(item);
+                item.MarkDirty();
+
+                for (var i = 0; i < item.info.itemMods.Length; i++)
+                {
+                    var mod = item.info.itemMods[i];
+                    mod.OnParentChanged(item);
+                }
+            }
+
+            private void RemoveItem(Item item)
+            {
+                if (item.uid > 0U && Network.Net.sv != null)
+                {
+                    Network.Net.sv.ReturnUID(item.uid);
+                    item.uid = 0U;
+                }
+                
+                if (item.contents != null)
+                {
+                    for (var i = 0; i < item.contents.itemList.Count; i++)
+                    {
+                        var content = item.contents.itemList[i];
+                        RemoveItem(content);
+                    }
+
+                    item.contents = null;
+                }
+                
+                item.RemoveFromWorld();
+                var parent = item.parent;
+                if (parent != null)
+                {
+                    parent.itemList.Remove(item);
+                    item.parent = null;
+                }
+                
+                var heldEntity = item.GetHeldEntity();
+                if (heldEntity != null && heldEntity.IsValid())
+                    heldEntity.Kill();
+            }
+            
+            #endregion
+        }
+        
+        #endregion
+        
+        #region Helpers
+
+        private bool CanUse(IPlayer player) => player.HasPermission(PermissionUse);
+
+        private bool CanUseAdmin(IPlayer player) => player.HasPermission(PermissionAdmin);
+
+        private string GetMsg(string key, string userId = null) => lang.GetMessage(key, this, userId);
+
+        private static void PrintDebug(string message)
+        {
+            if (_config.Debug)
+                Interface.Oxide.LogDebug(message);
         }
 
-        class WeaponMods
-        {
-            public int itemId;
-            public float condition;
-        }
         #endregion
     }
 }
