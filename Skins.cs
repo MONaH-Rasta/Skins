@@ -1,18 +1,21 @@
 ﻿//#define DEBUG
+
 using System;
 using System.Collections.Generic;
 using System.Linq;
 using Facepunch;
+using Network;
 using Newtonsoft.Json;
 using Oxide.Core;
 using Oxide.Core.Libraries.Covalence;
 using Oxide.Core.Plugins;
 using Oxide.Game.Rust.Cui;
+using ProtoBuf;
 using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "misticos", "2.2.1")]
+    [Info("Skins", "misticos", "2.2.2")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -180,6 +183,23 @@ namespace Oxide.Plugins
                     public string OffsetMax => $"{OffsetMaxX} {OffsetMaxY}";
                 }
             }
+
+            public void IndexSkins()
+            {
+                IndexedSkins.Clear();
+
+                foreach (var item in Skins)
+                {
+                    if (!string.IsNullOrEmpty(item.Permission) && !_ins.permission.PermissionExists(item.Permission))
+                        _ins.permission.RegisterPermission(item.Permission, _ins);
+
+                    List<SkinItem> items;
+                    if (!IndexedSkins.TryGetValue(item.Shortname, out items))
+                        items = IndexedSkins[item.Shortname] = new List<SkinItem>();
+
+                    items.Add(item);
+                }
+            }
         }
 
         protected override void LoadConfig()
@@ -190,6 +210,8 @@ namespace Oxide.Plugins
                 _config = Config.ReadObject<Configuration>();
                 if (_config == null) throw new Exception();
                 SaveConfig();
+                
+                _config.IndexSkins();
             }
             catch
             {
@@ -220,8 +242,8 @@ namespace Oxide.Plugins
                 },
                 {
                     "Admin Help", "Admin command usage:\n" +
-                                  "skin remove (Shortname) (Skin ID) - Remove a skin.\n" +
-                                  "skin add (Shortname) (Skin ID) - Add a skin."
+                                  "skin remove (Shortname) (Skin ID) [Permission] - Remove a skin.\n" +
+                                  "skin add (Shortname) (Skin ID) [Permission] - Add a skin."
                 },
                 {"Skin Get Format", "{shortname}'s skin: {id}."},
                 {"Skin Get No Item", "Please, hold the needed item."},
@@ -239,18 +261,6 @@ namespace Oxide.Plugins
 
             permission.RegisterPermission(PermissionUse, this);
             permission.RegisterPermission(PermissionAdmin, this);
-
-            foreach (var item in _config.Skins)
-            {
-                if (!string.IsNullOrEmpty(item.Permission) && !permission.PermissionExists(item.Permission))
-                    permission.RegisterPermission(item.Permission, this);
-                
-                List<Configuration.SkinItem> items;
-                if (!_config.IndexedSkins.TryGetValue(item.Shortname, out items))
-                    items = _config.IndexedSkins[item.Shortname] = new List<Configuration.SkinItem>();
-                
-                items.Add(item);
-            }
 
             GenerateUI();
         }
@@ -654,13 +664,14 @@ namespace Oxide.Plugins
                 player.Reply(GetMsg("Not Allowed", player.Id));
                 return;
             }
-
-            if (args.Length == 0)
-                args = new[] {"show"}; // :P strange yeah
-
-            var isAdmin = player.IsServer || CanUseAdmin(player);
+            
             var basePlayer = player.Object as BasePlayer;
             var isPlayer = basePlayer != null;
+            var isAdmin = player.IsServer || CanUseAdmin(player);
+
+            if (args.Length == 0)
+                args = new[] {isPlayer ? "show" : string.Empty}; // :P strange yeah
+
 
 #if DEBUG
             Puts($"Arguments: {string.Join(" ", args)}");
@@ -670,8 +681,11 @@ namespace Oxide.Plugins
             {
                 case "_tech-update":
                 {
+                    if (!isPlayer)
+                        break;
+                    
                     int page;
-                    if (args.Length != 2 || !isPlayer || !int.TryParse(args[1], out page))
+                    if (args.Length != 2 || !int.TryParse(args[1], out page))
                         break;
 
                     ContainerController container;
@@ -704,8 +718,7 @@ namespace Oxide.Plugins
                         player.Reply(GetMsg("Cannot Use", player.Id));
                         break;
                     }
-
-
+                    
                     ContainerController container;
                     if (!_controllers.TryGetValue(basePlayer.userID, out container) || !container.CanShow())
                     {
@@ -722,7 +735,7 @@ namespace Oxide.Plugins
                 case "r":
                 case "d":
                 {
-                    if (args.Length != 3)
+                    if (args.Length < 3)
                         goto default;
 
                     if (!isAdmin)
@@ -739,9 +752,15 @@ namespace Oxide.Plugins
                         break;
                     }
 
+                    string permission = null;
+                    if (args.Length == 4)
+                        permission = args[3];
+
                     LoadConfig();
 
-                    var skinData = Configuration.SkinItem.Find(null, shortname);
+                    var skinData = Configuration.SkinItem.Find(null, shortname)
+                        .Where(x => permission == null || x.Permission == permission);
+                    
                     if (!skinData.Any())
                     {
                         player.Reply(GetMsg("Skin Does Not Exist", player.Id));
@@ -752,6 +771,62 @@ namespace Oxide.Plugins
                         data.Skins.Remove(skin);
                     
                     player.Reply(GetMsg("Skin Removed", player.Id));
+
+                    SaveConfig();
+                    break;
+                }
+
+                case "add":
+                case "a":
+                {
+                    if (args.Length < 3)
+                        goto default;
+
+                    if (!isAdmin)
+                    {
+                        player.Reply(GetMsg("Not Allowed", player.Id));
+                        break;
+                    }
+
+                    var shortname = args[1];
+                    ulong skin;
+                    if (!ulong.TryParse(args[2], out skin))
+                    {
+                        player.Reply(GetMsg("Incorrect Skin", player.Id));
+                        break;
+                    }
+
+                    string permission = null;
+                    if (args.Length == 4)
+                        permission = args[3];
+
+                    LoadConfig();
+
+                    var skinData = Configuration.SkinItem.Find(null, shortname)
+                        .FirstOrDefault(x => permission == null || x.Permission == permission);
+                    
+                    if (skinData == null)
+                    {
+                        _config.Skins.Add(new Configuration.SkinItem
+                        {
+                            Permission = permission ?? string.Empty,
+                            Shortname = shortname,
+                            Skins = new List<ulong> {skin}
+                        });
+                        
+                        _config.IndexSkins();
+                        player.Reply(GetMsg("Skin Added", player.Id));
+                    }
+                    else
+                    {
+                        if (skinData.Skins.Contains(skin))
+                            player.Reply(GetMsg("Skin Already Exists", player.Id));
+                        else
+                        {
+                            skinData.Skins.Add(skin);
+                            player.Reply(GetMsg("Skin Added", player.Id));
+                        }
+                    }
 
                     SaveConfig();
                     break;
@@ -842,7 +917,7 @@ namespace Oxide.Plugins
             public Dictionary<string, List<ulong>> TotalSkinsCache = new Dictionary<string, List<ulong>>();
             
             private List<Item> _storedContent;
-            private ProtoBuf.Magazine _storedMagazine;
+            private Magazine _storedMagazine;
 
             public ContainerController(BasePlayer player)
             {
@@ -1241,9 +1316,9 @@ namespace Oxide.Plugins
 
             private void RemoveItem(Item item)
             {
-                if (item.uid > 0U && Network.Net.sv != null)
+                if (item.uid > 0U && Net.sv != null)
                 {
-                    Network.Net.sv.ReturnUID(item.uid);
+                    Net.sv.ReturnUID(item.uid);
                     item.uid = 0U;
                 }
 
