@@ -15,7 +15,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "misticos", "2.2.2")]
+    [Info("Skins", "misticos", "2.2.3")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -24,10 +24,11 @@ namespace Oxide.Plugins
         private static Skins _ins;
 
         private Dictionary<ulong, ContainerController> _controllers = new Dictionary<ulong, ContainerController>();
-        private Dictionary<uint, ContainerController> _controllersPerContainer =
-            new Dictionary<uint, ContainerController>();
 
-        private HashSet<uint> _itemAttachmentContainers = new HashSet<uint>();
+        private Dictionary<ItemContainerId, ContainerController> _controllersPerContainer =
+            new Dictionary<ItemContainerId, ContainerController>();
+
+        private HashSet<ItemContainerId> _itemAttachmentContainers = new HashSet<ItemContainerId>();
 
         private const string PermissionUse = "skins.use";
         private const string PermissionAdmin = "skins.admin";
@@ -43,10 +44,10 @@ namespace Oxide.Plugins
         private class Configuration
         {
             [JsonProperty(PropertyName = "Commands")]
-            public string[] Commands = {"skin", "skins"};
+            public string[] Commands = { "skin", "skins" };
 
             [JsonProperty(PropertyName = "Skins", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-            public List<SkinItem> Skins = new List<SkinItem> {new SkinItem()};
+            public List<SkinItem> Skins = new List<SkinItem> { new SkinItem() };
 
             [JsonIgnore]
             public Dictionary<string, List<SkinItem>> IndexedSkins = new Dictionary<string, List<SkinItem>>();
@@ -70,7 +71,7 @@ namespace Oxide.Plugins
                 public string Permission = "";
 
                 [JsonProperty(PropertyName = "Skins", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public List<ulong> Skins = new List<ulong> {0};
+                public List<ulong> Skins = new List<ulong> { 0 };
 
                 public static IEnumerable<SkinItem> Find(IPlayer player, string shortname)
                 {
@@ -99,11 +100,11 @@ namespace Oxide.Plugins
 
                 [JsonProperty(PropertyName = "Background Anchors")]
                 public Anchors BackgroundAnchors = new Anchors
-                    {AnchorMinX = "1.0", AnchorMinY = "1.0", AnchorMaxX = "1.0", AnchorMaxY = "1.0"};
+                    { AnchorMinX = "1.0", AnchorMinY = "1.0", AnchorMaxX = "1.0", AnchorMaxY = "1.0" };
 
                 [JsonProperty(PropertyName = "Background Offsets")]
                 public Offsets BackgroundOffsets = new Offsets
-                    {OffsetMinX = "-300", OffsetMinY = "-100", OffsetMaxX = "0", OffsetMaxY = "0"};
+                    { OffsetMinX = "-300", OffsetMinY = "-100", OffsetMaxX = "0", OffsetMaxY = "0" };
 
                 [JsonProperty(PropertyName = "Left Button Text")]
                 public string LeftText = "<size=36><</size>";
@@ -113,7 +114,7 @@ namespace Oxide.Plugins
 
                 [JsonProperty(PropertyName = "Left Button Anchors")]
                 public Anchors LeftAnchors = new Anchors
-                    {AnchorMinX = "0.025", AnchorMinY = "0.05", AnchorMaxX = "0.325", AnchorMaxY = "0.95"};
+                    { AnchorMinX = "0.025", AnchorMinY = "0.05", AnchorMaxX = "0.325", AnchorMaxY = "0.95" };
 
                 [JsonProperty(PropertyName = "Center Button Text")]
                 public string CenterText = "<size=36>Page: {page}</size>";
@@ -123,7 +124,7 @@ namespace Oxide.Plugins
 
                 [JsonProperty(PropertyName = "Center Button Anchors")]
                 public Anchors CenterAnchors = new Anchors
-                    {AnchorMinX = "0.350", AnchorMinY = "0.05", AnchorMaxX = "0.650", AnchorMaxY = "0.95"};
+                    { AnchorMinX = "0.350", AnchorMinY = "0.05", AnchorMaxX = "0.650", AnchorMaxY = "0.95" };
 
                 [JsonProperty(PropertyName = "Right Button Text")]
                 public string RightText = "<size=36>></size>";
@@ -133,7 +134,7 @@ namespace Oxide.Plugins
 
                 [JsonProperty(PropertyName = "Right Button Anchors")]
                 public Anchors RightAnchors = new Anchors
-                    {AnchorMinX = "0.675", AnchorMinY = "0.05", AnchorMaxX = "0.975", AnchorMaxY = "0.95"};
+                    { AnchorMinX = "0.675", AnchorMinY = "0.05", AnchorMaxX = "0.975", AnchorMaxY = "0.95" };
 
                 [JsonIgnore]
                 public string ParsedUI;
@@ -204,13 +205,16 @@ namespace Oxide.Plugins
 
         protected override void LoadConfig()
         {
+            _ins = this; // REEE that I have to do this tbh
+
             base.LoadConfig();
             try
             {
                 _config = Config.ReadObject<Configuration>();
                 if (_config == null) throw new Exception();
                 SaveConfig();
-                
+
+                GenerateUI();
                 _config.IndexSkins();
             }
             catch
@@ -232,8 +236,8 @@ namespace Oxide.Plugins
         {
             lang.RegisterMessages(new Dictionary<string, string>
             {
-                {"Not Allowed", "You don't have permission to use this command."},
-                {"Cannot Use", "I'm sorry, you cannot use that right now."},
+                { "Not Allowed", "You don't have permission to use this command." },
+                { "Cannot Use", "I'm sorry, you cannot use that right now." },
                 {
                     "Help", "Command usage:\n" +
                             "skin show - Show skins.\n" +
@@ -245,13 +249,13 @@ namespace Oxide.Plugins
                                   "skin remove (Shortname) (Skin ID) [Permission] - Remove a skin.\n" +
                                   "skin add (Shortname) (Skin ID) [Permission] - Add a skin."
                 },
-                {"Skin Get Format", "{shortname}'s skin: {id}."},
-                {"Skin Get No Item", "Please, hold the needed item."},
-                {"Incorrect Skin", "You have entered an incorrect skin."},
-                {"Skin Already Exists", "This skin already exists on this item."},
-                {"Skin Does Not Exist", "This skin does not exist."},
-                {"Skin Added", "Skin was successfully added."},
-                {"Skin Removed", "Skin was removed."}
+                { "Skin Get Format", "{shortname}'s skin: {id}." },
+                { "Skin Get No Item", "Please, hold the needed item." },
+                { "Incorrect Skin", "You have entered an incorrect skin." },
+                { "Skin Already Exists", "This skin already exists on this item." },
+                { "Skin Does Not Exist", "This skin does not exist." },
+                { "Skin Added", "Skin was successfully added." },
+                { "Skin Removed", "Skin was removed." }
             }, this);
         }
 
@@ -427,10 +431,10 @@ namespace Oxide.Plugins
 
             _config.UI.IndexPagePrevious = _config.UI.ParsedUI.LastIndexOf(pagePrevious, StringComparison.Ordinal);
             _config.UI.ParsedUI = _config.UI.ParsedUI.Remove(_config.UI.IndexPagePrevious, pagePrevious.Length);
-            
+
             _config.UI.IndexPageCurrent = _config.UI.ParsedUI.LastIndexOf(pageCurrent, StringComparison.Ordinal);
             _config.UI.ParsedUI = _config.UI.ParsedUI.Remove(_config.UI.IndexPageCurrent, pageCurrent.Length);
-            
+
             _config.UI.IndexPageNext = _config.UI.ParsedUI.LastIndexOf(pageNext, StringComparison.Ordinal);
             _config.UI.ParsedUI = _config.UI.ParsedUI.Remove(_config.UI.IndexPageNext, pageNext.Length);
         }
@@ -441,10 +445,11 @@ namespace Oxide.Plugins
             {
                 if (ItemManager.FindItemDefinition(shortname) != null)
                     continue;
-                
-                PrintWarning($"Item with shortname \"{shortname}\" does not exist. Please review your Skins configuration.");
+
+                PrintWarning(
+                    $"Item with shortname \"{shortname}\" does not exist. Please review your Skins configuration.");
             }
-            
+
             for (var i = 0; i < BasePlayer.activePlayerList.Count; i++)
             {
                 OnPlayerConnected(BasePlayer.activePlayerList[i]);
@@ -475,7 +480,7 @@ namespace Oxide.Plugins
             ContainerController container;
             if (!_controllers.Remove(player.userID, out container))
                 return;
-            
+
             container.Destroy();
         }
 
@@ -582,7 +587,7 @@ namespace Oxide.Plugins
             ContainerController container;
             if (!_controllers.TryGetValue(player.userID, out container))
                 return;
-            
+
             container.Close();
         }
 
@@ -598,7 +603,8 @@ namespace Oxide.Plugins
             return true;
         }
 
-        private object CanMoveItem(Item item, PlayerInventory playerLoot, uint targetContainerId, int slot, int amount)
+        private object CanMoveItem(Item item, PlayerInventory playerLoot, ItemContainerId targetContainerId, int slot,
+            int amount)
         {
             if (_itemAttachmentContainers.Contains(targetContainerId))
             {
@@ -615,7 +621,7 @@ namespace Oxide.Plugins
 
 #if DEBUG
             Puts(
-                $"CanMoveItem: {item.info.shortname} ({item.amount}) from {item.parent?.uid ?? 0} to {targetContainerId} in {slot} ({amount})");
+                $"CanMoveItem: {item.info.shortname} ({item.amount}) from {item.parent?.uid.Value ?? 0} to {targetContainerId} in {slot} ({amount})");
 #endif
 
             if (item.parent?.uid == targetContainerId)
@@ -664,13 +670,13 @@ namespace Oxide.Plugins
                 player.Reply(GetMsg("Not Allowed", player.Id));
                 return;
             }
-            
+
             var basePlayer = player.Object as BasePlayer;
             var isPlayer = basePlayer != null;
             var isAdmin = player.IsServer || CanUseAdmin(player);
 
             if (args.Length == 0)
-                args = new[] {isPlayer ? "show" : string.Empty}; // :P strange yeah
+                args = new[] { isPlayer ? "show" : string.Empty }; // :P strange yeah
 
 
 #if DEBUG
@@ -683,7 +689,7 @@ namespace Oxide.Plugins
                 {
                     if (!isPlayer)
                         break;
-                    
+
                     int page;
                     if (args.Length != 2 || !int.TryParse(args[1], out page))
                         break;
@@ -691,7 +697,7 @@ namespace Oxide.Plugins
                     ContainerController container;
                     if (!_controllers.TryGetValue(basePlayer.userID, out container))
                         break;
-            
+
                     container.UpdateContent(page);
                     break;
                 }
@@ -701,7 +707,7 @@ namespace Oxide.Plugins
                 {
                     if (!isPlayer)
                         break;
-                    
+
                     ContainerController container;
                     if (!_controllers.TryGetValue(basePlayer.userID, out container))
                         break;
@@ -718,7 +724,7 @@ namespace Oxide.Plugins
                         player.Reply(GetMsg("Cannot Use", player.Id));
                         break;
                     }
-                    
+
                     ContainerController container;
                     if (!_controllers.TryGetValue(basePlayer.userID, out container) || !container.CanShow())
                     {
@@ -760,7 +766,7 @@ namespace Oxide.Plugins
 
                     var skinData = Configuration.SkinItem.Find(null, shortname)
                         .Where(x => permission == null || x.Permission == permission);
-                    
+
                     if (!skinData.Any())
                     {
                         player.Reply(GetMsg("Skin Does Not Exist", player.Id));
@@ -769,7 +775,7 @@ namespace Oxide.Plugins
 
                     foreach (var data in skinData)
                         data.Skins.Remove(skin);
-                    
+
                     player.Reply(GetMsg("Skin Removed", player.Id));
 
                     SaveConfig();
@@ -804,16 +810,16 @@ namespace Oxide.Plugins
 
                     var skinData = Configuration.SkinItem.Find(null, shortname)
                         .FirstOrDefault(x => permission == null || x.Permission == permission);
-                    
+
                     if (skinData == null)
                     {
                         _config.Skins.Add(new Configuration.SkinItem
                         {
                             Permission = permission ?? string.Empty,
                             Shortname = shortname,
-                            Skins = new List<ulong> {skin}
+                            Skins = new List<ulong> { skin }
                         });
-                        
+
                         _config.IndexSkins();
                         player.Reply(GetMsg("Skin Added", player.Id));
                     }
@@ -859,14 +865,14 @@ namespace Oxide.Plugins
                     player.Reply(GetMsg("Help", player.Id));
                     if (isAdmin)
                         player.Reply(GetMsg("Admin Help", player.Id));
-                    
+
                     break;
                 }
             }
         }
 
         #endregion
-        
+
         #region API
 
         [HookMethod(nameof(SkinsClose))]
@@ -878,7 +884,7 @@ namespace Oxide.Plugins
             ContainerController container;
             if (!_controllers.TryGetValue(player.userID, out container))
                 return;
-            
+
             container.Close();
         }
 
@@ -898,7 +904,7 @@ namespace Oxide.Plugins
                 container.TotalSkinsCache.Remove(shortname);
             }
         }
-        
+
         #endregion
 
         #region Controller
@@ -915,7 +921,7 @@ namespace Oxide.Plugins
             public bool IsOpened = false;
 
             public Dictionary<string, List<ulong>> TotalSkinsCache = new Dictionary<string, List<ulong>>();
-            
+
             private List<Item> _storedContent;
             private Magazine _storedMagazine;
 
@@ -1014,7 +1020,7 @@ namespace Oxide.Plugins
                 if (item?.contents == null)
                     return;
 
-                if (item.contents.uid == 0)
+                if (!item.contents.uid.IsValid)
                     return;
 
                 _ins._itemAttachmentContainers.Add(item.contents.uid);
@@ -1047,7 +1053,7 @@ namespace Oxide.Plugins
             {
                 if (item?.contents != null)
                     _ins._itemAttachmentContainers.Remove(item.contents.uid);
-                
+
                 SetupContent(item);
             }
 
@@ -1165,7 +1171,7 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                if (source.uid == 0 || !source.IsValid() || source.amount <= 0)
+                if (!source.uid.IsValid || !source.IsValid() || source.amount <= 0)
                 {
 #if DEBUG
                     _ins.Puts("// Invalid item that was removed. Player may have tried to dupe something");
@@ -1183,18 +1189,18 @@ namespace Oxide.Plugins
                     if (!TotalSkinsCache.TryGetValue(source.info.shortname, out totalSkins))
                     {
                         // Fetch custom skins
-                        
+
                         var newSkins = new List<ulong>();
-                        
+
                         Interface.CallHook("OnSkinsFetch", Owner, source.info, newSkins);
 
                         TotalSkinsCache[source.info.shortname] = totalSkins = newSkins.Concat(Configuration.SkinItem
                             .Find(Owner.IPlayer, source.info.shortname)
                             .SelectMany(x => x.Skins)).Distinct().ToList();
-                        
+
                         Interface.CallHook("OnSkinsFetched", Owner, source.info, newSkins);
                     }
-                    
+
                     // Page checks
 
                     var perPage = Container.capacity - 1;
@@ -1205,7 +1211,7 @@ namespace Oxide.Plugins
 
                     if (page > maxPage)
                         page = maxPage;
-                    
+
                     // Grab skins and skip some offset
 
                     foreach (var skin in totalSkins.Skip(perPage * page).Take(perPage))
@@ -1254,7 +1260,7 @@ namespace Oxide.Plugins
                 _ins.Puts($"Hook result: {result}");
 #endif
 
-                return (bool) result;
+                return (bool)result;
             }
 
             #region Working with items
@@ -1309,17 +1315,17 @@ namespace Oxide.Plugins
                 {
                     item.info.itemMods[i].OnParentChanged(item);
                 }
-                
+
                 if (container == Container)
                     AddItemContainer(item);
             }
 
             private void RemoveItem(Item item)
             {
-                if (item.uid > 0U && Net.sv != null)
+                if (item.uid.IsValid && Net.sv != null)
                 {
-                    Net.sv.ReturnUID(item.uid);
-                    item.uid = 0U;
+                    Net.sv.ReturnUID(item.uid.Value);
+                    item.uid = default(ItemId);
                 }
 
                 if (item.contents != null)
