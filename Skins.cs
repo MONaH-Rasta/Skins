@@ -10,12 +10,12 @@ using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "Iv Misticos", "2.0.3")]
+    [Info("Skins", "Iv Misticos", "2.0.4")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
         #region Variables
-        
+
         private static List<ContainerController> _controllers;
 
         private const string PermissionUse = "skins.use";
@@ -290,7 +290,7 @@ namespace Oxide.Plugins
             if (container == null || player != null)
                 return;
             
-            PrintDebug($"OnItemAddedToContainer {item.info.shortname} {item.position}");
+            PrintDebug($"OnItemAddedToContainer: {item.info.shortname} (at {item.position})");
 
             if (itemContainer.itemList.Count != 1)
             {
@@ -320,7 +320,7 @@ namespace Oxide.Plugins
                 return;
             }
 
-            PrintDebug($"OnItemRemovedFromContainer {item.info.shortname} {item.position}");
+            PrintDebug($"OnItemRemovedFromContainer: {item.info.shortname} (at {item.position})");
             
             container.SetupContent(item);
             container.Clear();
@@ -332,10 +332,8 @@ namespace Oxide.Plugins
             if (player != loot.entitySource)
                 return;
             
-            PrintDebug("OnLootEntityEnd");
-            
-            var container = ContainerController.Find(player);
-            container?.Close();
+            PrintDebug("OnLootEntityEnd: Closing container");
+            ContainerController.Find(player)?.Close();
         }
 
         private object CanLootPlayer(BasePlayer looter, Object target)
@@ -353,11 +351,11 @@ namespace Oxide.Plugins
         private object CanMoveItem(Item item, PlayerInventory playerLoot, uint targetContainerId, int slot, int amount)
         {
             PrintDebug(
-                $"Move {item.info.shortname} ({item.amount}) from {item.parent?.uid ?? 0} to {targetContainerId} in {slot} ({amount})");
+                $"Moving {item.info.shortname} ({item.amount}) from {item.parent?.uid ?? 0} to {targetContainerId} in {slot} ({amount})");
 
             if (item.parent?.uid == targetContainerId)
             {
-                PrintDebug("Move Ignoring same containers");
+                PrintDebug("// CanMoveItem: Ignoring same containers");
                 return null;
             }
 
@@ -881,7 +879,7 @@ namespace Oxide.Plugins
 
             public void Show()
             {
-                PrintDebug($"Started container Show. Container UID: {Container.uid}");
+                PrintDebug($"Showing container. UID: {Container.uid}");
 
                 if (!CanUse())
                     return;
@@ -925,7 +923,7 @@ namespace Oxide.Plugins
                 var item = itemOverride ?? Container.GetSlot(0);
                 if (item == null)
                 {
-                    PrintDebug("Invalid item");
+                    PrintDebug("// Invalid item");
                     return;
                 }
 
@@ -935,12 +933,12 @@ namespace Oxide.Plugins
 
             public void SetupContent(Item destination)
             {
-                PrintDebug("Setting up content");
+                PrintDebug("Setting up content for an item");
                 
                 var contents = destination.contents?.itemList;
                 if (contents == null)
                 {
-                    PrintDebug("Contents null");
+                    PrintDebug("// Contents null");
                     return;
                 }
                 
@@ -961,12 +959,12 @@ namespace Oxide.Plugins
 
             public void RemoveContent(Item source)
             {
-                PrintDebug("Removing content");
+                PrintDebug("Removing content for an item");
                 
                 var contents = source.contents?.itemList;
                 if (contents == null)
                 {
-                    PrintDebug("Contents null");
+                    PrintDebug("// Contents null");
                     return;
                 }
 
@@ -1005,14 +1003,20 @@ namespace Oxide.Plugins
             {
                 if (!IsValid())
                 {
-                    PrintDebug("Invalid container");
+                    PrintDebug("// Invalid container");
                     return;
                 }
                 
                 var source = Container.GetSlot(0);
                 if (source == null)
                 {
-                    PrintDebug("Source item is null");
+                    PrintDebug("// Source item is null");
+                    return;
+                }
+
+                if (source.uid == 0)
+                {
+                    PrintDebug("// Invalid item that was removed. Player may have tried to dupe something");
                     return;
                 }
 
@@ -1040,7 +1044,7 @@ namespace Oxide.Plugins
                     itemMod.OnParentChanged(source);
                 }
 
-                PrintDebug($"Updating content with {page} page");
+                PrintDebug($"Updating content. Page: {page}");
                 Clear();
                 
                 MoveItem(source, Container, false, 0);
@@ -1096,11 +1100,21 @@ namespace Oxide.Plugins
                 }
 
                 var projectile = item.GetHeldEntity() as BaseProjectile;
-                var projectileDuplicate = duplicate.GetHeldEntity() as BaseProjectile;
-                if (projectile == null || projectileDuplicate == null)
+                if (projectile == null)
+                {
+                    PrintDebug("Original projectile null, returning duplicate");
                     return duplicate;
+                }
                 
-                projectileDuplicate.primaryMagazine = projectile.primaryMagazine;
+                var projectileDuplicate = duplicate.GetHeldEntity() as BaseProjectile;
+                if (projectileDuplicate == null)
+                {
+                    PrintDebug("Duplicate projectile null, returning duplicate");
+                    return duplicate;
+                }
+
+                PrintDebug("Setting magazine data");
+                projectileDuplicate.primaryMagazine.Load(projectile.primaryMagazine.Save());
                 return duplicate;
             }
 
