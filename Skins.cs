@@ -10,7 +10,7 @@ using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "Iv Misticos", "2.0.5")]
+    [Info("Skins", "Iv Misticos", "2.0.6")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -280,6 +280,31 @@ namespace Oxide.Plugins
 
         #region Working With Containers
 
+        private void OnItemSplit(Item item, int amount)
+        {
+            if (item.parentItem != null)
+                return;
+
+            var container = ContainerController.Find(item.parent);
+            if (container == null)
+                return;
+            
+            PrintDebug($"OnItemSplit: {item.info.shortname} (slot {item.position}); To {amount}");
+
+            var main = container.Container.GetSlot(0);
+            if (main == null)
+            {
+                PrintDebug("Main item is null");
+                return;
+            }
+            
+            NextFrame(() =>
+            {
+                main.amount -= amount;
+                container.UpdateContent(0);
+            });
+        }
+
         private void OnItemAddedToContainer(ItemContainer itemContainer, Item item)
         {
             if (item.parentItem != null)
@@ -377,11 +402,14 @@ namespace Oxide.Plugins
             if (mainItem == null) // In case there is no "main item" in container we're moving from
                 return false; // Just cancel. Illegal!
             
-            if (mainItem.uid != item.uid)
-                mainItem.amount = item.amount - amount; // Change main item amount and refresh content.
-            
             // Next frame because else it will change already existing item which may result in a wrong amount of the item :(
-            NextFrame(() => controller.UpdateContent(0));
+            NextFrame(() =>
+            {
+                if (mainItem.uid != item.uid)
+                    mainItem.amount = item.amount - amount; // Change main item amount and refresh content.
+                controller.UpdateContent(0);
+            });
+            
             return null; // That's legal, we'll do everything
         }
 
@@ -1082,37 +1110,37 @@ namespace Oxide.Plugins
 
             private Item GetDuplicateItem(Item item, ulong skin)
             {
-                PrintDebug($"Getting duplicate for {item.info.shortname}..");
+                //PrintDebug($"Getting duplicate for {item.info.shortname}..");
 
                 var duplicate = ItemManager.Create(item.info, item.amount, skin);
                 if (item.hasCondition)
                 {
-                    PrintDebug("Setting condition");
+                    //PrintDebug("Setting condition");
                     duplicate._maxCondition = item._maxCondition;
                     duplicate._condition = item._condition;
                 }
 
                 if (item.contents != null)
                 {
-                    PrintDebug("Setting contents");
+                    //PrintDebug("Setting contents");
                     duplicate.contents.capacity = item.contents.capacity;
                 }
 
                 var projectile = item.GetHeldEntity() as BaseProjectile;
                 if (projectile == null)
                 {
-                    PrintDebug("Original projectile null, returning duplicate");
+                    //PrintDebug("Original projectile null, returning duplicate");
                     return duplicate;
                 }
                 
                 var projectileDuplicate = duplicate.GetHeldEntity() as BaseProjectile;
                 if (projectileDuplicate == null)
                 {
-                    PrintDebug("Duplicate projectile null, returning duplicate");
+                    //PrintDebug("Duplicate projectile null, returning duplicate");
                     return duplicate;
                 }
 
-                PrintDebug("Setting magazine data");
+                //PrintDebug("Setting magazine data");
                 projectileDuplicate.primaryMagazine.Load(projectile.primaryMagazine.Save());
                 return duplicate;
             }
