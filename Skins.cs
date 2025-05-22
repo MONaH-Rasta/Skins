@@ -10,7 +10,7 @@ using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "Iv Misticos", "2.0.1")]
+    [Info("Skins", "Iv Misticos", "2.0.2")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -296,6 +296,7 @@ namespace Oxide.Plugins
             {
                 item.position = -1;
                 container.GiveItemBack();
+                container.Clear();
             }
 
             item.position = 0;
@@ -395,6 +396,7 @@ namespace Oxide.Plugins
             {
                 // Give target item back
                 controller.GiveItemBack(targetItem);
+                controller.Clear();
             }
 
             return null;
