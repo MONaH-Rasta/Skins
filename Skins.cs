@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using System.Linq;
 using Newtonsoft.Json;
@@ -11,7 +11,7 @@ using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "Iv Misticos", "2.1.1")]
+    [Info("Skins", "Iv Misticos", "2.1.2")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -1110,11 +1110,6 @@ namespace Oxide.Plugins
                     duplicate._maxCondition = item._maxCondition;
                     duplicate._condition = item._condition;
                 }
-                
-                // Support for the StatTrack plugin
-                if(item.name != null) {
-                    duplicate.name = item.name;
-                }
 
                 if (item.contents != null)
                 {
@@ -1130,10 +1125,10 @@ namespace Oxide.Plugins
 
             private void MoveItem(Item item, ItemContainer container, int slot = 0)
             {
-                while (container.SlotTaken(slot) && container.capacity > slot)
+                while (container.SlotTaken(item, slot) && container.capacity > slot)
                     slot++;
                 
-                if (container.IsFull() || container.SlotTaken(slot))
+                if (container.IsFull() || container.SlotTaken(item, slot))
                 {
                     PrintDebug("Container is full, dropping item");
                     item.Drop(Owner.transform.position, Vector3.up);
