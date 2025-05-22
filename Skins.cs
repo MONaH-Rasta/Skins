@@ -11,7 +11,7 @@ using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "Iv Misticos", "2.1.0")]
+    [Info("Skins", "Iv Misticos", "2.1.1")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -1109,6 +1109,11 @@ namespace Oxide.Plugins
                 {
                     duplicate._maxCondition = item._maxCondition;
                     duplicate._condition = item._condition;
+                }
+                
+                // Support for the StatTrack plugin
+                if(item.name != null) {
+                    duplicate.name = item.name;
                 }
 
                 if (item.contents != null)
