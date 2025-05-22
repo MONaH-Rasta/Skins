@@ -10,13 +10,15 @@ using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "Iv Misticos", "2.0.6")]
+    [Info("Skins", "Iv Misticos", "2.0.7")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
         #region Variables
 
-        private static List<ContainerController> _controllers;
+        private static Skins _ins;
+
+        private List<ContainerController> _controllers = new List<ContainerController>();
 
         private const string PermissionUse = "skins.use";
         private const string PermissionAdmin = "skins.admin";
@@ -25,7 +27,7 @@ namespace Oxide.Plugins
 
         #region Configuration
 
-        private static Configuration _config;
+        private Configuration _config;
 
         private class Configuration
         {
@@ -61,9 +63,9 @@ namespace Oxide.Plugins
 
                 public static SkinItem Find(string shortname)
                 {
-                    for (var i = 0; i < _config.Skins.Count; i++)
+                    for (var i = 0; i < _ins._config.Skins.Count; i++)
                     {
-                        var item = _config.Skins[i];
+                        var item = _ins._config.Skins[i];
                         if (item.Shortname == shortname)
                             return item;
                     }
@@ -209,10 +211,10 @@ namespace Oxide.Plugins
 
         private void Init()
         {
+            _ins = this;
+            
             permission.RegisterPermission(PermissionUse, this);
             permission.RegisterPermission(PermissionAdmin, this);
-            
-            _controllers = new List<ContainerController>();
 
             if (_config.OldSkins == null)
                 return;
@@ -237,8 +239,7 @@ namespace Oxide.Plugins
         {
             for (var i = 0; i < BasePlayer.activePlayerList.Count; i++)
             {
-                var player = BasePlayer.activePlayerList[i];
-                OnPlayerInit(player);
+                OnPlayerInit(BasePlayer.activePlayerList[i]);
             }
 
             AddCovalenceCommand(_config.Command, nameof(CommandSkin));
@@ -246,16 +247,12 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
-            for (var i = _controllers.Count - 1; i >= 0; i--)
+            for (var i = 0; i < _controllers.Count; i++)
             {
-                var container = _controllers[i];
-                container.Destroy();
-                
-                _controllers.RemoveAt(i);
+                _controllers[i].Destroy();
             }
 
-            _controllers = null;
-            _config = null;
+            _ins = null;
         }
 
         private void OnPlayerInit(BasePlayer player)
@@ -289,7 +286,7 @@ namespace Oxide.Plugins
             if (container == null)
                 return;
             
-            PrintDebug($"OnItemSplit: {item.info.shortname} (slot {item.position}); To {amount}");
+            PrintDebug($"OnItemSplit: {item.info.shortname} ({item.amount}x, slot {item.position}); {amount}x");
 
             var main = container.Container.GetSlot(0);
             if (main == null)
@@ -297,10 +294,12 @@ namespace Oxide.Plugins
                 PrintDebug("Main item is null");
                 return;
             }
-            
+
             NextFrame(() =>
             {
-                main.amount -= amount;
+                if (main.uid != item.uid) // Ignore main item because it's amount will be changed
+                    main.amount -= amount;
+                
                 container.UpdateContent(0);
             });
         }
@@ -329,7 +328,7 @@ namespace Oxide.Plugins
             }
 
             item.position = 0;
-            container.RemoveContent(item);
+            container.StoreContent(item);
             container.UpdateContent(0);
         }
 
@@ -387,33 +386,12 @@ namespace Oxide.Plugins
                 return false;
             }
             
-            return CanMoveItemFrom(containerFrom, item, playerLoot, slot, amount) ??
-                   CanMoveItemTo(containerTo, item, playerLoot, slot, amount);
+            return CanMoveItemTo(containerTo, item, slot, amount);
         }
 
         #region Minor helpers
 
-        private object CanMoveItemFrom(ContainerController controller, Item item, PlayerInventory playerLoot, int slot, int amount)
-        {
-            if (controller == null || item.amount == amount)
-                return null; // That's all legal, calm down
-            
-            var mainItem = controller.Container.GetSlot(0);
-            if (mainItem == null) // In case there is no "main item" in container we're moving from
-                return false; // Just cancel. Illegal!
-            
-            // Next frame because else it will change already existing item which may result in a wrong amount of the item :(
-            NextFrame(() =>
-            {
-                if (mainItem.uid != item.uid)
-                    mainItem.amount = item.amount - amount; // Change main item amount and refresh content.
-                controller.UpdateContent(0);
-            });
-            
-            return null; // That's legal, we'll do everything
-        }
-
-        private object CanMoveItemTo(ContainerController controller, Item item, PlayerInventory playerLoot, int slot, int amount)
+        private object CanMoveItemTo(ContainerController controller, Item item, int slot, int amount)
         {
             var targetItem = controller?.Container?.GetSlot(slot);
             if (targetItem != null)
@@ -638,6 +616,7 @@ namespace Oxide.Plugins
             public bool IsOpened = false;
 
             private List<Item> _storedContent;
+            private ProtoBuf.Magazine _storedMagazine;
 
             #region Search
 
@@ -647,9 +626,9 @@ namespace Oxide.Plugins
                 if (!CanShow(player))
                     goto none;
                 
-                for (var i = 0; i < _controllers.Count; i++)
+                for (var i = 0; i < _ins._controllers.Count; i++)
                 {
-                    if (_controllers[i].Owner == player)
+                    if (_ins._controllers[i].Owner == player)
                     {
                         return i;
                     }
@@ -662,7 +641,7 @@ namespace Oxide.Plugins
             public static ContainerController Find(BasePlayer player)
             {
                 var index = FindIndex(player);
-                return index == -1 ? null : _controllers[index];
+                return index == -1 ? null : _ins._controllers[index];
             }
 
             // ReSharper disable once SuggestBaseTypeForParameter
@@ -671,9 +650,9 @@ namespace Oxide.Plugins
                 if (container == null)
                     goto none;
                 
-                for (var i = 0; i < _controllers.Count; i++)
+                for (var i = 0; i < _ins._controllers.Count; i++)
                 {
-                    if (_controllers[i].Container == container)
+                    if (_ins._controllers[i].Container == container)
                     {
                         return i;
                     }
@@ -686,15 +665,15 @@ namespace Oxide.Plugins
             public static ContainerController Find(ItemContainer container)
             {
                 var index = FindIndex(container);
-                return index == -1 ? null : _controllers[index];
+                return index == -1 ? null : _ins._controllers[index];
             }
 
             // ReSharper disable once SuggestBaseTypeForParameter
             private static int FindIndex(uint id)
             {
-                for (var i = 0; i < _controllers.Count; i++)
+                for (var i = 0; i < _ins._controllers.Count; i++)
                 {
-                    if (_controllers[i].Container.uid == id)
+                    if (_ins._controllers[i].Container.uid == id)
                     {
                         return i;
                     }
@@ -706,7 +685,7 @@ namespace Oxide.Plugins
             public static ContainerController Find(uint id)
             {
                 var index = FindIndex(id);
-                return index == -1 ? null : _controllers[index];
+                return index == -1 ? null : _ins._controllers[index];
             }
             
             #endregion
@@ -719,7 +698,7 @@ namespace Oxide.Plugins
                 Container = new ItemContainer
                 {
                     entityOwner = Owner,
-                    capacity = _config.Capacity,
+                    capacity = _ins._config.Capacity,
                     isServer = true,
                     allowedContents = ItemContainer.ContentsType.Generic
                 };
@@ -748,14 +727,14 @@ namespace Oxide.Plugins
                     {
                         new CuiImageComponent
                         {
-                            Color = _config.UI.BackgroundColor
+                            Color = _ins._config.UI.BackgroundColor
                         },
                         new CuiRectTransformComponent
                         {
-                            AnchorMin = _config.UI.BackgroundAnchors.AnchorMin,
-                            AnchorMax = _config.UI.BackgroundAnchors.AnchorMax,
-                            OffsetMin = _config.UI.BackgroundOffsets.OffsetMin,
-                            OffsetMax = _config.UI.BackgroundOffsets.OffsetMax
+                            AnchorMin = _ins._config.UI.BackgroundAnchors.AnchorMin,
+                            AnchorMax = _ins._config.UI.BackgroundAnchors.AnchorMax,
+                            OffsetMin = _ins._config.UI.BackgroundOffsets.OffsetMin,
+                            OffsetMax = _ins._config.UI.BackgroundOffsets.OffsetMax
                         }
                     },
                     FadeOut = 0.5f
@@ -770,13 +749,13 @@ namespace Oxide.Plugins
                         new CuiButtonComponent
                         {
                             Close = background.Name,
-                            Command = $"{_config.Command} _tech-update {page - 1}",
-                            Color = _config.UI.LeftColor
+                            Command = $"{_ins._config.Command} _tech-update {page - 1}",
+                            Color = _ins._config.UI.LeftColor
                         },
                         new CuiRectTransformComponent
                         {
-                            AnchorMin = _config.UI.LeftAnchors.AnchorMin,
-                            AnchorMax = _config.UI.LeftAnchors.AnchorMax
+                            AnchorMin = _ins._config.UI.LeftAnchors.AnchorMin,
+                            AnchorMax = _ins._config.UI.LeftAnchors.AnchorMax
                         }
                     },
                     FadeOut = 0.5f
@@ -790,7 +769,7 @@ namespace Oxide.Plugins
                     {
                         new CuiTextComponent
                         {
-                            Text = _config.UI.LeftText,
+                            Text = _ins._config.UI.LeftText,
                             Align = TextAnchor.MiddleCenter
                         },
                         new CuiRectTransformComponent
@@ -810,12 +789,12 @@ namespace Oxide.Plugins
                     {
                         new CuiImageComponent
                         {
-                            Color = _config.UI.CenterColor
+                            Color = _ins._config.UI.CenterColor
                         },
                         new CuiRectTransformComponent
                         {
-                            AnchorMin = _config.UI.CenterAnchors.AnchorMin,
-                            AnchorMax = _config.UI.CenterAnchors.AnchorMax
+                            AnchorMin = _ins._config.UI.CenterAnchors.AnchorMin,
+                            AnchorMax = _ins._config.UI.CenterAnchors.AnchorMax
                         }
                     },
                     FadeOut = 0.5f
@@ -829,7 +808,7 @@ namespace Oxide.Plugins
                     {
                         new CuiTextComponent
                         {
-                            Text = _config.UI.CenterText.Replace("{page}", $"{page + 1}"),
+                            Text = _ins._config.UI.CenterText.Replace("{page}", $"{page + 1}"),
                             Align = TextAnchor.MiddleCenter
                         },
                         new CuiRectTransformComponent
@@ -850,13 +829,13 @@ namespace Oxide.Plugins
                         new CuiButtonComponent
                         {
                             Close = background.Name,
-                            Command = $"{_config.Command} _tech-update {page + 1}",
-                            Color = _config.UI.RightColor
+                            Command = $"{_ins._config.Command} _tech-update {page + 1}",
+                            Color = _ins._config.UI.RightColor
                         },
                         new CuiRectTransformComponent
                         {
-                            AnchorMin = _config.UI.RightAnchors.AnchorMin,
-                            AnchorMax = _config.UI.RightAnchors.AnchorMax
+                            AnchorMin = _ins._config.UI.RightAnchors.AnchorMin,
+                            AnchorMax = _ins._config.UI.RightAnchors.AnchorMax
                         }
                     },
                     FadeOut = 0.5f
@@ -870,7 +849,7 @@ namespace Oxide.Plugins
                     {
                         new CuiTextComponent
                         {
-                            Text = _config.UI.RightText,
+                            Text = _ins._config.UI.RightText,
                             Align = TextAnchor.MiddleCenter
                         },
                         new CuiRectTransformComponent
@@ -925,7 +904,7 @@ namespace Oxide.Plugins
                 loot.AddContainer(Container);
                 loot.SendImmediate();
                 
-                Owner.ClientRPCPlayer(null, Owner, "RPC_OpenLootPanel", _config.Panel);
+                Owner.ClientRPCPlayer(null, Owner, "RPC_OpenLootPanel", _ins._config.Panel);
             }
             
             #region Can Show
@@ -963,7 +942,18 @@ namespace Oxide.Plugins
             public void SetupContent(Item destination)
             {
                 PrintDebug("Setting up content for an item");
-                
+                if (destination == null)
+                {
+                    PrintDebug("Destination is null!");
+                    return;
+                }
+
+                if (_storedMagazine != null)
+                {
+                    (destination.GetHeldEntity() as BaseProjectile)?.primaryMagazine?.Load(_storedMagazine);
+                    _storedMagazine = null;
+                }
+
                 var contents = destination.contents?.itemList;
                 if (contents == null)
                 {
@@ -984,26 +974,31 @@ namespace Oxide.Plugins
                     foreach (var itemMod in item.info.itemMods)
                         itemMod.OnParentChanged(item);
                 }
+
+                _storedContent.Clear();
             }
 
-            public void RemoveContent(Item source)
+            public void StoreContent(Item source)
             {
                 PrintDebug("Removing content for an item");
                 
                 var contents = source.contents?.itemList;
-                if (contents == null)
+                if (contents != null)
                 {
-                    PrintDebug("// Contents null");
-                    return;
+                    for (var i = contents.Count - 1; i >= 0; i--)
+                    {
+                        var item = contents[i];
+                        item.parent = null;
+                        contents.RemoveAt(i);
+                        _storedContent.Add(item);
+                    }
                 }
 
-                for (var i = contents.Count - 1; i >= 0; i--)
-                {
-                    var item = contents[i];
-                    item.parent = null;
-                    contents.RemoveAt(i);
-                    _storedContent.Add(item);
-                }
+                var magazine = (source.GetHeldEntity() as BaseProjectile)?.primaryMagazine;
+                _storedMagazine = magazine?.Save();
+
+                if (magazine != null) // Just in case so they won't be able to take out the ammo
+                    magazine.contents = 0;
             }
 
             public void Clear()
@@ -1041,7 +1036,7 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                if (source.uid == 0 || !source.IsValid())
+                if (source.uid == 0 || !source.IsValid() || source.amount <= 0)
                 {
                     PrintDebug("// Invalid item that was removed. Player may have tried to dupe something");
                     return;
@@ -1110,38 +1105,22 @@ namespace Oxide.Plugins
 
             private Item GetDuplicateItem(Item item, ulong skin)
             {
-                //PrintDebug($"Getting duplicate for {item.info.shortname}..");
-
                 var duplicate = ItemManager.Create(item.info, item.amount, skin);
                 if (item.hasCondition)
                 {
-                    //PrintDebug("Setting condition");
                     duplicate._maxCondition = item._maxCondition;
                     duplicate._condition = item._condition;
                 }
 
                 if (item.contents != null)
                 {
-                    //PrintDebug("Setting contents");
                     duplicate.contents.capacity = item.contents.capacity;
                 }
-
-                var projectile = item.GetHeldEntity() as BaseProjectile;
-                if (projectile == null)
-                {
-                    //PrintDebug("Original projectile null, returning duplicate");
-                    return duplicate;
-                }
                 
-                var projectileDuplicate = duplicate.GetHeldEntity() as BaseProjectile;
-                if (projectileDuplicate == null)
-                {
-                    //PrintDebug("Duplicate projectile null, returning duplicate");
-                    return duplicate;
-                }
-
-                //PrintDebug("Setting magazine data");
-                projectileDuplicate.primaryMagazine.Load(projectile.primaryMagazine.Save());
+                var projectile = duplicate.GetHeldEntity() as BaseProjectile;
+                if (projectile != null)
+                    projectile.primaryMagazine.contents = 0;
+                
                 return duplicate;
             }
 
@@ -1152,13 +1131,12 @@ namespace Oxide.Plugins
                 
                 if (container.IsFull() || container.SlotTaken(slot))
                 {
-                    PrintDebug("Container full, dropping item");
-                    item.Drop(Owner.transform.position, Vector3.zero);
+                    PrintDebug("Container is full, dropping item");
+                    item.Drop(Owner.transform.position, Vector3.up);
                     return;
                 }
 
-                var parent = item.parent;
-                parent?.itemList?.Remove(item);
+                item.parent?.itemList?.Remove(item);
 
                 item.RemoveFromWorld();
 
@@ -1170,8 +1148,7 @@ namespace Oxide.Plugins
 
                 for (var i = 0; i < item.info.itemMods.Length; i++)
                 {
-                    var mod = item.info.itemMods[i];
-                    mod.OnParentChanged(item);
+                    item.info.itemMods[i].OnParentChanged(item);
                 }
             }
 
@@ -1187,23 +1164,19 @@ namespace Oxide.Plugins
                 {
                     for (var i = 0; i < item.contents.itemList.Count; i++)
                     {
-                        var content = item.contents.itemList[i];
-                        RemoveItem(content);
+                        RemoveItem(item.contents.itemList[i]);
                     }
 
                     item.contents = null;
                 }
                 
                 item.RemoveFromWorld();
-                var parent = item.parent;
-                if (parent != null)
-                {
-                    parent.itemList.Remove(item);
-                    item.parent = null;
-                }
+
+                item.parent?.itemList?.Remove(item);
+                item.parent = null;
                 
                 var heldEntity = item.GetHeldEntity();
-                if (heldEntity != null && heldEntity.IsValid())
+                if (heldEntity != null && heldEntity.IsValid() && !heldEntity.IsDestroyed)
                     heldEntity.Kill();
             }
             
@@ -1222,7 +1195,7 @@ namespace Oxide.Plugins
 
         private static void PrintDebug(string message)
         {
-            if (_config.Debug)
+            if (_ins._config.Debug)
                 Interface.Oxide.LogDebug(message);
         }
 
