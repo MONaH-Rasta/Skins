@@ -10,7 +10,7 @@ using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "Iv Misticos", "2.0.0")]
+    [Info("Skins", "Iv Misticos", "2.0.1")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -343,11 +343,7 @@ namespace Oxide.Plugins
                 return;
             
             var container = ContainerController.Find(player);
-            if (container == null)
-                return;
-            
-            PrintDebug("Ended looting container");
-            container.Close();
+            container?.Close();
         }
 
         private object CanLootPlayer(BasePlayer looter, Object target)
@@ -361,6 +357,50 @@ namespace Oxide.Plugins
 
             return true;
         }
+
+        private object CanMoveItem(Item item, PlayerInventory playerLoot, uint targetContainerId, int slot, int amount)
+        {
+            PrintDebug(
+                $"Move {item.info.shortname} ({item.amount}) from {item.parent?.uid ?? 0} to {targetContainerId} in {slot} ({amount})");
+            
+            var containerFrom = ContainerController.Find(item.parent);
+            var containerTo = ContainerController.Find(targetContainerId);
+            return CanMoveItemFrom(containerFrom, item, playerLoot, slot, amount) ??
+                   CanMoveItemTo(containerTo, item, playerLoot, slot, amount);
+        }
+
+        #region Minor helpers
+
+        private object CanMoveItemFrom(ContainerController controller, Item item, PlayerInventory playerLoot, int slot, int amount)
+        {
+            if (controller == null || item.amount == amount)
+                return null; // That's all legal, calm down
+            
+            PrintDebug("Changing main item amount");
+            var mainItem = controller.Container.GetSlot(0);
+            if (mainItem == null)
+                return false; // Just cancel. Illegal!
+            
+            mainItem.amount = item.amount - amount; // Change main item amount and refresh content.
+                
+            // Next frame because else it will change already existing item which may result in a wrong amount of the item :(
+            NextFrame(() => controller.UpdateContent(0));
+            return null; // That's legal, we'll do everything
+        }
+
+        private object CanMoveItemTo(ContainerController controller, Item item, PlayerInventory playerLoot, int slot, int amount)
+        {
+            var targetItem = controller?.Container.GetSlot(slot);
+            if (targetItem != null)
+            {
+                // Give target item back
+                controller.GiveItemBack(targetItem);
+            }
+
+            return null;
+        }
+
+        #endregion
 
         #endregion
 
@@ -568,7 +608,7 @@ namespace Oxide.Plugins
              */
             
             public BasePlayer Owner;
-            private ItemContainer _container;
+            public ItemContainer Container;
             public bool IsOpened = false;
 
             private List<Item> _storedContent;
@@ -607,7 +647,7 @@ namespace Oxide.Plugins
                 
                 for (var i = 0; i < _controllers.Count; i++)
                 {
-                    if (_controllers[i]._container == container)
+                    if (_controllers[i].Container == container)
                     {
                         return i;
                     }
@@ -622,6 +662,26 @@ namespace Oxide.Plugins
                 var index = FindIndex(container);
                 return index == -1 ? null : _controllers[index];
             }
+
+            // ReSharper disable once SuggestBaseTypeForParameter
+            private static int FindIndex(uint id)
+            {
+                for (var i = 0; i < _controllers.Count; i++)
+                {
+                    if (_controllers[i].Container.uid == id)
+                    {
+                        return i;
+                    }
+                }
+
+                return -1;
+            }
+
+            public static ContainerController Find(uint id)
+            {
+                var index = FindIndex(id);
+                return index == -1 ? null : _controllers[index];
+            }
             
             #endregion
 
@@ -630,7 +690,7 @@ namespace Oxide.Plugins
                 Owner = player;
                 _storedContent = new List<Item>();
                 
-                _container = new ItemContainer
+                Container = new ItemContainer
                 {
                     entityOwner = Owner,
                     capacity = _config.Capacity,
@@ -638,18 +698,20 @@ namespace Oxide.Plugins
                     allowedContents = ItemContainer.ContentsType.Generic
                 };
                 
-                _container.GiveUID();
+                Container.GiveUID();
             }
+            
+            #region UI
 
             private void DestroyUI()
             {
-                PrintDebug("Started UI destroy");
+                PrintDebug("Destroying UI");
                 CuiHelper.DestroyUi(Owner, "Skins.Background");
             }
 
             private void DrawUI(int page)
             {
-                PrintDebug("Started UI draw");
+                PrintDebug("Drawing UI");
                 var elements = new CuiElementContainer();
 
                 var background = new CuiElement
@@ -802,10 +864,10 @@ namespace Oxide.Plugins
                 elements.Add(right);
                 elements.Add(rightText);
 
-                PrintDebug("Started UI send");
                 CuiHelper.AddUi(Owner, elements);
-                PrintDebug("UI sent");
             }
+            
+            #endregion
 
             public void Close()
             {
@@ -820,7 +882,7 @@ namespace Oxide.Plugins
 
             public void Show()
             {
-                PrintDebug("Started container Show");
+                PrintDebug($"Started container Show. Container UID: {Container.uid}");
 
                 if (!CanUse())
                     return;
@@ -834,7 +896,7 @@ namespace Oxide.Plugins
                 loot.PositionChecks = false;
                 loot.entitySource = Owner;
                 loot.itemSource = null;
-                loot.AddContainer(_container);
+                loot.AddContainer(Container);
                 loot.SendImmediate();
                 
                 Owner.ClientRPCPlayer(null, Owner, "RPC_OpenLootPanel", _config.Panel);
@@ -854,23 +916,22 @@ namespace Oxide.Plugins
             
             #endregion
 
-            public void GiveItemBack()
+            public void GiveItemBack(Item itemOverride = null)
             {
                 if (!IsValid())
                     return;
                 
                 PrintDebug("Trying to give item back..");
 
-                var item = _container.GetSlot(0);
+                var item = itemOverride ?? Container.GetSlot(0);
                 if (item == null)
                 {
                     PrintDebug("Invalid item");
                     return;
                 }
 
-                MoveItem(item, Owner.inventory.containerMain, -1);
+                MoveItem(item, Owner.inventory.containerMain, true);
                 SetupContent(item);
-                PrintDebug("Gave item back");
             }
 
             public void SetupContent(Item destination)
@@ -888,8 +949,14 @@ namespace Oxide.Plugins
                 {
                     var item = _storedContent[i];
                     item.parent = destination.contents;
+                    item.RemoveFromWorld();
+                    
                     _storedContent.RemoveAt(i);
                     contents.Add(item);
+                    
+                    item.MarkDirty();
+                    foreach (var itemMod in item.info.itemMods)
+                        itemMod.OnParentChanged(item);
                 }
             }
 
@@ -917,20 +984,20 @@ namespace Oxide.Plugins
             {
                 PrintDebug("Clearing container");
                 
-                for (var i = 0; i < _container.itemList.Count; i++)
+                for (var i = 0; i < Container.itemList.Count; i++)
                 {
-                    var item = _container.itemList[i];
+                    var item = Container.itemList[i];
                     RemoveItem(item);
                 }
                 
-                _container.itemList.Clear();
-                _container.MarkDirty();
+                Container.itemList.Clear();
+                Container.MarkDirty();
             }
 
             public void Destroy()
             {
                 Close();
-                _container.Kill();
+                Container.Kill();
                 
                 PrintDebug("Destroyed container");
             }
@@ -943,7 +1010,7 @@ namespace Oxide.Plugins
                     return;
                 }
                 
-                var source = _container.GetSlot(0);
+                var source = Container.GetSlot(0);
                 if (source == null)
                 {
                     PrintDebug("Source item is null");
@@ -955,7 +1022,7 @@ namespace Oxide.Plugins
                     return;
 
                 var skins = skinData.Skins;
-                var perPage = _container.capacity - 1;
+                var perPage = Container.capacity - 1;
 
                 if (page < 0)
                     page = 0;
@@ -967,7 +1034,7 @@ namespace Oxide.Plugins
                     offset -= perPage;
                 }
 
-                _container.itemList.Remove(source);
+                Container.itemList.Remove(source);
                 for (var i = 0; i < source.info.itemMods.Length; i++)
                 {
                     var itemMod = source.info.itemMods[i];
@@ -977,14 +1044,14 @@ namespace Oxide.Plugins
                 PrintDebug($"Updating content with {page} page");
                 Clear();
                 
-                MoveItem(source, _container, 0);
+                MoveItem(source, Container, false, 0);
                 DestroyUI();
                 DrawUI(page);
 
                 var slot = 1;
                 for (var i = 0; i < skins.Count; i++)
                 {
-                    if (slot > _container.capacity)
+                    if (slot >= Container.capacity)
                         break;
 
                     if (offset > i)
@@ -993,13 +1060,11 @@ namespace Oxide.Plugins
                     var skin = skins[i];
                     var duplicate = GetDuplicateItem(source, skin);
                     
-                    MoveItem(duplicate, _container, slot++);
+                    MoveItem(duplicate, Container, false, slot++);
                 }
-                
-                PrintDebug("Changed content");
             }
 
-            private bool IsValid() => Owner == null || _container?.itemList != null;
+            private bool IsValid() => Owner == null || Container?.itemList != null;
 
             private bool CanUse()
             {
@@ -1040,12 +1105,18 @@ namespace Oxide.Plugins
                 return duplicate;
             }
 
-            private void MoveItem(Item item, ItemContainer container, int slot)
+            private void MoveItem(Item item, ItemContainer container, bool stacking, int slot = -1)
             {
+                if (container.IsFull())
+                {
+                    PrintDebug("Container full, dropping item");
+                    item.Drop(Owner.transform.position, Vector3.zero);
+                    return;
+                }
+
                 var parent = item.parent;
                 parent?.itemList?.Remove(item);
 
-                item.RemoveFromContainer();
                 item.RemoveFromWorld();
 
                 item.position = slot;
