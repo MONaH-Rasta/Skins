@@ -23,12 +23,12 @@ namespace Oxide.Plugins
 
         private static Skins _ins;
 
-        private Dictionary<ulong, ContainerController> _controllers = new Dictionary<ulong, ContainerController>();
+        private readonly Dictionary<ulong, ContainerController> _controllers = new();
 
-        private Dictionary<ItemContainerId, ContainerController> _controllersPerContainer =
-            new Dictionary<ItemContainerId, ContainerController>();
+        private readonly Dictionary<ItemContainerId, ContainerController> _controllersPerContainer =
+            new();
 
-        private HashSet<ItemContainerId> _itemAttachmentContainers = new HashSet<ItemContainerId>();
+        private readonly HashSet<ItemContainerId> _itemAttachmentContainers = new();
 
         private const string PermissionUse = "skins.use";
         private const string PermissionAdmin = "skins.admin";
@@ -47,10 +47,9 @@ namespace Oxide.Plugins
             public string[] Commands = { "skin", "skins" };
 
             [JsonProperty(PropertyName = "Skins", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-            public List<SkinItem> Skins = new List<SkinItem> { new SkinItem() };
+            public List<SkinItem> Skins = new() { new SkinItem() };
 
-            [JsonIgnore]
-            public Dictionary<string, List<SkinItem>> IndexedSkins = new Dictionary<string, List<SkinItem>>();
+            [JsonIgnore] public Dictionary<string, List<SkinItem>> IndexedSkins = new();
 
             [JsonProperty(PropertyName = "Container Panel Name")]
             public string Panel = "generic";
@@ -58,8 +57,7 @@ namespace Oxide.Plugins
             [JsonProperty(PropertyName = "Container Capacity")]
             public int Capacity = 36;
 
-            [JsonProperty(PropertyName = "UI")]
-            public UIConfiguration UI = new UIConfiguration();
+            [JsonProperty(PropertyName = "UI")] public UIConfiguration UI = new();
 
             public class SkinItem
             {
@@ -71,15 +69,14 @@ namespace Oxide.Plugins
                 public string Permission = "";
 
                 [JsonProperty(PropertyName = "Skins", ObjectCreationHandling = ObjectCreationHandling.Replace)]
-                public List<ulong> Skins = new List<ulong> { 0 };
+                public List<ulong> Skins = new() { 0 };
 
                 public static IEnumerable<SkinItem> Find(IPlayer player, string shortname)
                 {
-                    List<SkinItem> items;
-                    if (!_ins._config.IndexedSkins.TryGetValue(shortname, out items))
+                    if (!_ins._config.IndexedSkins.TryGetValue(shortname, out List<SkinItem> items))
                         yield break;
 
-                    foreach (var item in items)
+                    foreach (SkinItem item in items)
                     {
                         if (!item.CanUse(player))
                             continue;
@@ -99,12 +96,10 @@ namespace Oxide.Plugins
                 public string BackgroundColor = "0.18 0.28 0.36";
 
                 [JsonProperty(PropertyName = "Background Anchors")]
-                public Anchors BackgroundAnchors = new Anchors
-                    { AnchorMinX = "1.0", AnchorMinY = "1.0", AnchorMaxX = "1.0", AnchorMaxY = "1.0" };
+                public Anchors BackgroundAnchors = new() { AnchorMinX = "1.0", AnchorMinY = "1.0", AnchorMaxX = "1.0", AnchorMaxY = "1.0" };
 
                 [JsonProperty(PropertyName = "Background Offsets")]
-                public Offsets BackgroundOffsets = new Offsets
-                    { OffsetMinX = "-300", OffsetMinY = "-100", OffsetMaxX = "0", OffsetMaxY = "0" };
+                public Offsets BackgroundOffsets = new() { OffsetMinX = "-300", OffsetMinY = "-100", OffsetMaxX = "0", OffsetMaxY = "0" };
 
                 [JsonProperty(PropertyName = "Left Button Text")]
                 public string LeftText = "<size=36><</size>";
@@ -113,8 +108,7 @@ namespace Oxide.Plugins
                 public string LeftColor = "0.11 0.51 0.83";
 
                 [JsonProperty(PropertyName = "Left Button Anchors")]
-                public Anchors LeftAnchors = new Anchors
-                    { AnchorMinX = "0.025", AnchorMinY = "0.05", AnchorMaxX = "0.325", AnchorMaxY = "0.95" };
+                public Anchors LeftAnchors = new() { AnchorMinX = "0.025", AnchorMinY = "0.05", AnchorMaxX = "0.325", AnchorMaxY = "0.95" };
 
                 [JsonProperty(PropertyName = "Center Button Text")]
                 public string CenterText = "<size=36>Page: {page}</size>";
@@ -123,8 +117,7 @@ namespace Oxide.Plugins
                 public string CenterColor = "0.11 0.51 0.83";
 
                 [JsonProperty(PropertyName = "Center Button Anchors")]
-                public Anchors CenterAnchors = new Anchors
-                    { AnchorMinX = "0.350", AnchorMinY = "0.05", AnchorMaxX = "0.650", AnchorMaxY = "0.95" };
+                public Anchors CenterAnchors = new() { AnchorMinX = "0.350", AnchorMinY = "0.05", AnchorMaxX = "0.650", AnchorMaxY = "0.95" };
 
                 [JsonProperty(PropertyName = "Right Button Text")]
                 public string RightText = "<size=36>></size>";
@@ -133,14 +126,11 @@ namespace Oxide.Plugins
                 public string RightColor = "0.11 0.51 0.83";
 
                 [JsonProperty(PropertyName = "Right Button Anchors")]
-                public Anchors RightAnchors = new Anchors
-                    { AnchorMinX = "0.675", AnchorMinY = "0.05", AnchorMaxX = "0.975", AnchorMaxY = "0.95" };
+                public Anchors RightAnchors = new() { AnchorMinX = "0.675", AnchorMinY = "0.05", AnchorMaxX = "0.975", AnchorMaxY = "0.95" };
 
-                [JsonIgnore]
-                public string ParsedUI;
+                [JsonIgnore] public string ParsedUI;
 
-                [JsonIgnore]
-                public int IndexPagePrevious, IndexPageCurrent, IndexPageNext;
+                [JsonIgnore] public int IndexPagePrevious, IndexPageCurrent, IndexPageNext;
 
                 public class Anchors
                 {
@@ -156,11 +146,9 @@ namespace Oxide.Plugins
                     [JsonProperty(PropertyName = "Anchor Max Y")]
                     public string AnchorMaxY = "1.0";
 
-                    [JsonIgnore]
-                    public string AnchorMin => $"{AnchorMinX} {AnchorMinY}";
+                    [JsonIgnore] public string AnchorMin => $"{AnchorMinX} {AnchorMinY}";
 
-                    [JsonIgnore]
-                    public string AnchorMax => $"{AnchorMaxX} {AnchorMaxY}";
+                    [JsonIgnore] public string AnchorMax => $"{AnchorMaxX} {AnchorMaxY}";
                 }
 
                 public class Offsets
@@ -177,11 +165,9 @@ namespace Oxide.Plugins
                     [JsonProperty(PropertyName = "Offset Max Y")]
                     public string OffsetMaxY = "100";
 
-                    [JsonIgnore]
-                    public string OffsetMin => $"{OffsetMinX} {OffsetMinY}";
+                    [JsonIgnore] public string OffsetMin => $"{OffsetMinX} {OffsetMinY}";
 
-                    [JsonIgnore]
-                    public string OffsetMax => $"{OffsetMaxX} {OffsetMaxY}";
+                    [JsonIgnore] public string OffsetMax => $"{OffsetMaxX} {OffsetMaxY}";
                 }
             }
 
@@ -189,13 +175,12 @@ namespace Oxide.Plugins
             {
                 IndexedSkins.Clear();
 
-                foreach (var item in Skins)
+                foreach (SkinItem item in Skins)
                 {
                     if (!string.IsNullOrEmpty(item.Permission) && !_ins.permission.PermissionExists(item.Permission))
                         _ins.permission.RegisterPermission(item.Permission, _ins);
 
-                    List<SkinItem> items;
-                    if (!IndexedSkins.TryGetValue(item.Shortname, out items))
+                    if (!IndexedSkins.TryGetValue(item.Shortname, out List<SkinItem> items))
                         items = IndexedSkins[item.Shortname] = new List<SkinItem>();
 
                     items.Add(item);
@@ -275,9 +260,9 @@ namespace Oxide.Plugins
             const string pageCurrent = "{page}";
             const string pageNext = "{pageNext}";
 
-            var elements = new CuiElementContainer();
+            CuiElementContainer elements = new CuiElementContainer();
 
-            var background = new CuiElement
+            CuiElement background = new CuiElement
             {
                 Name = "Skins.Background",
                 Parent = "Overlay",
@@ -298,7 +283,7 @@ namespace Oxide.Plugins
                 FadeOut = 0.5f
             };
 
-            var left = new CuiElement
+            CuiElement left = new CuiElement
             {
                 Name = "Skins.Left",
                 Parent = background.Name,
@@ -319,7 +304,7 @@ namespace Oxide.Plugins
                 FadeOut = 0.5f
             };
 
-            var leftText = new CuiElement
+            CuiElement leftText = new CuiElement
             {
                 Name = "Skins.Left.Text",
                 Parent = left.Name,
@@ -339,7 +324,7 @@ namespace Oxide.Plugins
                 FadeOut = 0.5f
             };
 
-            var center = new CuiElement
+            CuiElement center = new CuiElement
             {
                 Name = "Skins.Center",
                 Parent = background.Name,
@@ -358,7 +343,7 @@ namespace Oxide.Plugins
                 FadeOut = 0.5f
             };
 
-            var centerText = new CuiElement
+            CuiElement centerText = new CuiElement
             {
                 Name = "Skins.Center.Text",
                 Parent = center.Name,
@@ -378,7 +363,7 @@ namespace Oxide.Plugins
                 FadeOut = 0.5f
             };
 
-            var right = new CuiElement
+            CuiElement right = new CuiElement
             {
                 Name = "Skins.Right",
                 Parent = background.Name,
@@ -399,7 +384,7 @@ namespace Oxide.Plugins
                 FadeOut = 0.5f
             };
 
-            var rightText = new CuiElement
+            CuiElement rightText = new CuiElement
             {
                 Name = "Skins.Right.Text",
                 Parent = right.Name,
@@ -441,16 +426,16 @@ namespace Oxide.Plugins
 
         private void OnServerInitialized()
         {
-            foreach (var shortname in _config.IndexedSkins.Keys)
+            foreach (string shortname in _config.IndexedSkins.Keys)
             {
-                if (ItemManager.FindItemDefinition(shortname) != null)
+                if (ItemManager.FindItemDefinition(shortname))
                     continue;
 
                 PrintWarning(
                     $"Item with shortname \"{shortname}\" does not exist. Please review your Skins configuration.");
             }
 
-            for (var i = 0; i < BasePlayer.activePlayerList.Count; i++)
+            for (int i = 0; i < BasePlayer.activePlayerList.Count; i++)
             {
                 OnPlayerConnected(BasePlayer.activePlayerList[i]);
             }
@@ -461,7 +446,7 @@ namespace Oxide.Plugins
 
         private void Unload()
         {
-            foreach (var controller in _controllers)
+            foreach (KeyValuePair<ulong, ContainerController> controller in _controllers)
                 controller.Value.Destroy();
 
             _ins = null;
@@ -477,8 +462,7 @@ namespace Oxide.Plugins
 
         private void OnPlayerDisconnected(BasePlayer player)
         {
-            ContainerController container;
-            if (!_controllers.Remove(player.userID, out container))
+            if (!_controllers.Remove(player.userID, out ContainerController container))
                 return;
 
             container.Destroy();
@@ -491,15 +475,14 @@ namespace Oxide.Plugins
             if (item.parentItem != null || item.parent == null)
                 return;
 
-            ContainerController container;
-            if (!_controllersPerContainer.TryGetValue(item.parent.uid, out container))
+            if (!_controllersPerContainer.TryGetValue(item.parent.uid, out ContainerController container))
                 return;
 
 #if DEBUG
             Puts($"OnItemSplit: {item.info.shortname} ({item.amount}x, slot {item.position}); {amount}x");
 #endif
 
-            var main = container.Container.GetSlot(0);
+            Item main = container.Container.GetSlot(0);
             if (main == null)
             {
 #if DEBUG
@@ -522,12 +505,11 @@ namespace Oxide.Plugins
             if (item.parentItem != null)
                 return;
 
-            var player = itemContainer.GetOwnerPlayer();
+            BasePlayer player = itemContainer.GetOwnerPlayer();
             if (player != null)
                 return;
 
-            ContainerController container;
-            if (!_controllersPerContainer.TryGetValue(itemContainer.uid, out container))
+            if (!_controllersPerContainer.TryGetValue(itemContainer.uid, out ContainerController container))
                 return;
 
 #if DEBUG
@@ -555,12 +537,11 @@ namespace Oxide.Plugins
             if (item.parentItem != null)
                 return;
 
-            var player = itemContainer.GetOwnerPlayer();
+            BasePlayer player = itemContainer.GetOwnerPlayer();
             if (player != null)
                 return;
 
-            ContainerController container;
-            if (!_controllersPerContainer.TryGetValue(itemContainer.uid, out container))
+            if (!_controllersPerContainer.TryGetValue(itemContainer.uid, out ContainerController container))
                 return;
 
 #if DEBUG
@@ -576,7 +557,7 @@ namespace Oxide.Plugins
 
         private void OnPlayerLootEnd(PlayerLoot loot)
         {
-            var player = loot.gameObject.GetComponent<BasePlayer>();
+            BasePlayer player = loot.gameObject.GetComponent<BasePlayer>();
             if (player != loot.entitySource)
                 return;
 
@@ -584,8 +565,7 @@ namespace Oxide.Plugins
             Puts("OnLootEntityEnd: Closing container");
 #endif
 
-            ContainerController container;
-            if (!_controllers.TryGetValue(player.userID, out container))
+            if (!_controllers.TryGetValue(player.userID, out ContainerController container))
                 return;
 
             container.Close();
@@ -596,14 +576,13 @@ namespace Oxide.Plugins
             if (looter != target)
                 return null;
 
-            ContainerController container;
-            if (!_controllers.TryGetValue(looter.userID, out container) || !container.IsOpened)
+            if (!_controllers.TryGetValue(looter.userID, out ContainerController container) || !container.IsOpened)
                 return null;
 
             return true;
         }
 
-        private object CanMoveItem(Item item, PlayerInventory playerLoot, ItemContainerId targetContainerId, int slot,
+        private object CanMoveItem(Item item, PlayerInventory _, ItemContainerId targetContainerId, int slot,
             int amount)
         {
             if (_itemAttachmentContainers.Contains(targetContainerId))
@@ -614,9 +593,8 @@ namespace Oxide.Plugins
                 return false;
             }
 
-            ContainerController containerFrom, containerTo;
-            if (!_controllersPerContainer.TryGetValue(targetContainerId, out containerTo) &&
-                (item.parent == null || !_controllersPerContainer.TryGetValue(item.parent.uid, out containerFrom)))
+            if (!_controllersPerContainer.TryGetValue(targetContainerId, out ContainerController containerTo) &&
+                (item.parent == null || !_controllersPerContainer.ContainsKey(item.parent.uid)))
                 return null;
 
 #if DEBUG
@@ -638,9 +616,9 @@ namespace Oxide.Plugins
 
         #region Minor helpers
 
-        private object CanMoveItemTo(ContainerController controller, Item item, int slot, int amount)
+        private object CanMoveItemTo(ContainerController controller, Item _, int slot, int _1)
         {
-            var targetItem = controller?.Container?.GetSlot(slot);
+            Item targetItem = controller?.Container?.GetSlot(slot);
             if (targetItem != null)
             {
                 // Give target item back
@@ -659,7 +637,7 @@ namespace Oxide.Plugins
 
         #region Commands
 
-        private void CommandSkin(IPlayer player, string command, string[] args)
+        private void CommandSkin(IPlayer player, string _, string[] args)
         {
             if (!CanUse(player))
             {
@@ -671,9 +649,9 @@ namespace Oxide.Plugins
                 return;
             }
 
-            var basePlayer = player.Object as BasePlayer;
-            var isPlayer = basePlayer != null;
-            var isAdmin = player.IsServer || CanUseAdmin(player);
+            BasePlayer basePlayer = player.Object as BasePlayer;
+            bool isPlayer = basePlayer != null;
+            bool isAdmin = player.IsServer || CanUseAdmin(player);
 
             if (args.Length == 0)
                 args = new[] { isPlayer ? "show" : string.Empty }; // :P strange yeah
@@ -690,12 +668,10 @@ namespace Oxide.Plugins
                     if (!isPlayer)
                         break;
 
-                    int page;
-                    if (args.Length != 2 || !int.TryParse(args[1], out page))
+                    if (args.Length != 2 || !int.TryParse(args[1], out int page))
                         break;
 
-                    ContainerController container;
-                    if (!_controllers.TryGetValue(basePlayer.userID, out container))
+                    if (!_controllers.TryGetValue(basePlayer.userID, out ContainerController container))
                         break;
 
                     container.UpdateContent(page);
@@ -708,8 +684,7 @@ namespace Oxide.Plugins
                     if (!isPlayer)
                         break;
 
-                    ContainerController container;
-                    if (!_controllers.TryGetValue(basePlayer.userID, out container))
+                    if (!_controllers.TryGetValue(basePlayer.userID, out ContainerController container))
                         break;
 
                     container.TotalSkinsCache.Clear();
@@ -725,8 +700,7 @@ namespace Oxide.Plugins
                         break;
                     }
 
-                    ContainerController container;
-                    if (!_controllers.TryGetValue(basePlayer.userID, out container) || !container.CanShow())
+                    if (!_controllers.TryGetValue(basePlayer.userID, out ContainerController container) || !container.CanShow())
                     {
                         player.Reply(GetMsg("Cannot Use", player.Id));
                         break;
@@ -750,30 +724,33 @@ namespace Oxide.Plugins
                         break;
                     }
 
-                    var shortname = args[1];
-                    ulong skin;
-                    if (!ulong.TryParse(args[2], out skin))
+                    string shortname = args[1];
+                    if (!ulong.TryParse(args[2], out ulong skin))
                     {
                         player.Reply(GetMsg("Incorrect Skin", player.Id));
                         break;
                     }
 
-                    string permission = null;
+                    string perm = null;
                     if (args.Length == 4)
-                        permission = args[3];
+                        perm = args[3];
 
                     LoadConfig();
 
-                    var skinData = Configuration.SkinItem.Find(null, shortname)
-                        .Where(x => permission == null || x.Permission == permission);
+                    IEnumerable<Configuration.SkinItem> skinData = Configuration.SkinItem.Find(null, shortname)
+                        .Where(x => perm == null || x.Permission == perm);
 
-                    if (!skinData.Any())
+                    var skinDataList = Configuration.SkinItem.Find(null, shortname)
+                        .Where(x => perm == null || x.Permission == perm)
+                        .ToList(); // Materialize to List to avoid multiple enumeration
+
+                    if (!skinDataList.Any())
                     {
                         player.Reply(GetMsg("Skin Does Not Exist", player.Id));
                         break;
                     }
 
-                    foreach (var data in skinData)
+                    foreach (Configuration.SkinItem data in skinDataList)
                         data.Skins.Remove(skin);
 
                     player.Reply(GetMsg("Skin Removed", player.Id));
@@ -794,28 +771,27 @@ namespace Oxide.Plugins
                         break;
                     }
 
-                    var shortname = args[1];
-                    ulong skin;
-                    if (!ulong.TryParse(args[2], out skin))
+                    string shortname = args[1];
+                    if (!ulong.TryParse(args[2], out ulong skin))
                     {
                         player.Reply(GetMsg("Incorrect Skin", player.Id));
                         break;
                     }
 
-                    string permission = null;
+                    string perm = null;
                     if (args.Length == 4)
-                        permission = args[3];
+                        perm = args[3];
 
                     LoadConfig();
 
-                    var skinData = Configuration.SkinItem.Find(null, shortname)
-                        .FirstOrDefault(x => permission == null || x.Permission == permission);
+                    Configuration.SkinItem skinData = Configuration.SkinItem.Find(null, shortname)
+                        .FirstOrDefault(x => perm == null || x.Permission == perm);
 
                     if (skinData == null)
                     {
                         _config.Skins.Add(new Configuration.SkinItem
                         {
-                            Permission = permission ?? string.Empty,
+                            Permission = perm ?? string.Empty,
                             Shortname = shortname,
                             Skins = new List<ulong> { skin }
                         });
@@ -847,7 +823,7 @@ namespace Oxide.Plugins
                         break;
                     }
 
-                    var item = basePlayer.GetActiveItem();
+                    Item item = basePlayer.GetActiveItem();
                     if (item == null || !item.IsValid())
                     {
                         player.Reply(GetMsg("Skin Get No Item", player.Id));
@@ -881,8 +857,7 @@ namespace Oxide.Plugins
             if (player == null)
                 return;
 
-            ContainerController container;
-            if (!_controllers.TryGetValue(player.userID, out container))
+            if (!_controllers.TryGetValue(player.userID, out ContainerController container))
                 return;
 
             container.Close();
@@ -891,8 +866,7 @@ namespace Oxide.Plugins
         [HookMethod(nameof(PurgeCache))]
         private void PurgeCache(ulong id, string shortname)
         {
-            ContainerController container;
-            if (!_controllers.TryGetValue(id, out container))
+            if (!_controllers.TryGetValue(id, out ContainerController container))
                 return;
 
             if (string.IsNullOrEmpty(shortname))
@@ -918,11 +892,11 @@ namespace Oxide.Plugins
 
             public BasePlayer Owner;
             public ItemContainer Container;
-            public bool IsOpened = false;
+            public bool IsOpened;
 
-            public Dictionary<string, List<ulong>> TotalSkinsCache = new Dictionary<string, List<ulong>>();
+            public Dictionary<string, List<ulong>> TotalSkinsCache = new();
 
-            private List<Item> _storedContent;
+            private readonly List<Item> _storedContent;
             private Magazine _storedMagazine;
 
             public ContainerController(BasePlayer player)
@@ -989,7 +963,7 @@ namespace Oxide.Plugins
                 IsOpened = true;
                 UpdateContent(0);
 
-                var loot = Owner.inventory.loot;
+                PlayerLoot loot = Owner.inventory.loot;
 
                 loot.Clear();
                 loot.PositionChecks = false;
@@ -998,7 +972,7 @@ namespace Oxide.Plugins
                 loot.AddContainer(Container);
                 loot.SendImmediate();
 
-                Owner.ClientRPCPlayer(null, Owner, "RPC_OpenLootPanel", _ins._config.Panel);
+                Owner.ClientRPC(RpcTarget.Player("RPC_OpenLootPanel", Owner), _ins._config.Panel);
             }
 
             #region Can Show
@@ -1035,7 +1009,7 @@ namespace Oxide.Plugins
                 _ins.Puts("Trying to give item back..");
 #endif
 
-                var item = itemOverride ?? Container.GetSlot(0);
+                Item item = itemOverride ?? Container.GetSlot(0);
                 if (item == null)
                 {
 #if DEBUG
@@ -1077,7 +1051,7 @@ namespace Oxide.Plugins
                     _storedMagazine = null;
                 }
 
-                var contents = destination.contents?.itemList;
+                List<Item> contents = destination.contents?.itemList;
                 if (contents == null)
                 {
 #if DEBUG
@@ -1087,9 +1061,9 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                for (var i = _storedContent.Count - 1; i >= 0; i--)
+                for (int i = _storedContent.Count - 1; i >= 0; i--)
                 {
-                    var item = _storedContent[i];
+                    Item item = _storedContent[i];
                     item.parent = destination.contents;
                     item.RemoveFromWorld();
 
@@ -1097,7 +1071,7 @@ namespace Oxide.Plugins
                     contents.Add(item);
 
                     item.MarkDirty();
-                    foreach (var itemMod in item.info.itemMods)
+                    foreach (ItemMod itemMod in item.info.itemMods)
                         itemMod.OnParentChanged(item);
                 }
 
@@ -1110,19 +1084,19 @@ namespace Oxide.Plugins
                 _ins.Puts("Removing content for an item");
 #endif
 
-                var contents = source.contents?.itemList;
+                List<Item> contents = source.contents?.itemList;
                 if (contents != null)
                 {
-                    for (var i = contents.Count - 1; i >= 0; i--)
+                    for (int i = contents.Count - 1; i >= 0; i--)
                     {
-                        var item = contents[i];
+                        Item item = contents[i];
                         item.parent = null;
                         contents.RemoveAt(i);
                         _storedContent.Add(item);
                     }
                 }
 
-                var magazine = (source.GetHeldEntity() as BaseProjectile)?.primaryMagazine;
+                BaseProjectile.Magazine magazine = (source.GetHeldEntity() as BaseProjectile)?.primaryMagazine;
                 _storedMagazine = magazine?.Save();
 
                 if (magazine != null) // Just in case so they won't be able to take out the ammo
@@ -1135,7 +1109,7 @@ namespace Oxide.Plugins
                 _ins.Puts("Clearing container");
 #endif
 
-                for (var i = Container.itemList.Count - 1; i >= 0; i--)
+                for (int i = Container.itemList.Count - 1; i >= 0; i--)
                 {
                     RemoveItem(Container.itemList[i]);
                 }
@@ -1161,7 +1135,7 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                var source = Container.GetSlot(0);
+                Item source = Container.GetSlot(0);
                 if (source == null)
                 {
 #if DEBUG
@@ -1180,17 +1154,16 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                var skins = Pool.GetList<ulong>();
+                List<ulong> skins = Pool.Get<List<ulong>>();
                 try
                 {
                     // Cache or get total skins available for user
 
-                    List<ulong> totalSkins;
-                    if (!TotalSkinsCache.TryGetValue(source.info.shortname, out totalSkins))
+                    if (!TotalSkinsCache.TryGetValue(source.info.shortname, out List<ulong> totalSkins))
                     {
                         // Fetch custom skins
 
-                        var newSkins = new List<ulong>();
+                        List<ulong> newSkins = new List<ulong>();
 
                         Interface.CallHook("OnSkinsFetch", Owner, source.info, newSkins);
 
@@ -1203,8 +1176,8 @@ namespace Oxide.Plugins
 
                     // Page checks
 
-                    var perPage = Container.capacity - 1;
-                    var maxPage = (totalSkins.Count - 1) / perPage;
+                    int perPage = Container.capacity - 1;
+                    int maxPage = (totalSkins.Count - 1) / perPage;
 
                     if (page < 0)
                         page = 0;
@@ -1214,15 +1187,15 @@ namespace Oxide.Plugins
 
                     // Grab skins and skip some offset
 
-                    foreach (var skin in totalSkins.Skip(perPage * page).Take(perPage))
+                    foreach (ulong skin in totalSkins.Skip(perPage * page).Take(perPage))
                         skins.Add(skin);
 
                     Interface.CallHook("OnSkinsPage", Owner, source.info, skins, page);
 
                     Container.itemList.Remove(source);
-                    for (var i = 0; i < source.info.itemMods.Length; i++)
+                    for (int i = 0; i < source.info.itemMods.Length; i++)
                     {
-                        var itemMod = source.info.itemMods[i];
+                        ItemMod itemMod = source.info.itemMods[i];
                         itemMod.OnParentChanged(source);
                     }
 
@@ -1236,15 +1209,15 @@ namespace Oxide.Plugins
                     DestroyUI();
                     DrawUI(page);
 
-                    for (var i = 0; i < skins.Count; i++)
+                    for (int i = 0; i < skins.Count; i++)
                     {
-                        var duplicate = GetDuplicateItem(source, skins[i]);
+                        Item duplicate = GetDuplicateItem(source, skins[i]);
                         MoveItem(duplicate, Container, i + 1);
                     }
                 }
                 finally
                 {
-                    Pool.FreeList(ref skins);
+                    Pool.FreeUnmanaged(ref skins);
                 }
             }
 
@@ -1252,8 +1225,8 @@ namespace Oxide.Plugins
 
             private bool CanUse()
             {
-                var result = Interface.CallHook("CanUseSkins", Owner.IPlayer.Id);
-                if (!(result is bool))
+                object result = Interface.CallHook("CanUseSkins", Owner.IPlayer.Id);
+                if (result is not bool)
                     return true;
 
 #if DEBUG
@@ -1267,7 +1240,7 @@ namespace Oxide.Plugins
 
             private Item GetDuplicateItem(Item item, ulong skin)
             {
-                var duplicate = ItemManager.Create(item.info, item.amount, skin);
+                Item duplicate = ItemManager.Create(item.info, item.amount, skin);
                 if (item.hasCondition)
                 {
                     duplicate._maxCondition = item._maxCondition;
@@ -1279,7 +1252,7 @@ namespace Oxide.Plugins
                     duplicate.contents.capacity = item.contents.capacity;
                 }
 
-                var projectile = duplicate.GetHeldEntity() as BaseProjectile;
+                BaseProjectile projectile = duplicate.GetHeldEntity() as BaseProjectile;
                 if (projectile != null)
                     projectile.primaryMagazine.contents = 0;
 
@@ -1311,7 +1284,7 @@ namespace Oxide.Plugins
                 container.itemList.Add(item);
                 item.MarkDirty();
 
-                for (var i = 0; i < item.info.itemMods.Length; i++)
+                for (int i = 0; i < item.info.itemMods.Length; i++)
                 {
                     item.info.itemMods[i].OnParentChanged(item);
                 }
@@ -1330,7 +1303,7 @@ namespace Oxide.Plugins
 
                 if (item.contents != null)
                 {
-                    for (var i = item.contents.itemList.Count - 1; i >= 0; i--)
+                    for (int i = item.contents.itemList.Count - 1; i >= 0; i--)
                     {
                         RemoveItem(item.contents.itemList[i]);
                     }
@@ -1342,7 +1315,7 @@ namespace Oxide.Plugins
 
                 item.parent = null;
 
-                var heldEntity = item.GetHeldEntity();
+                BaseEntity heldEntity = item.GetHeldEntity();
                 if (heldEntity != null && heldEntity.IsValid() && !heldEntity.IsDestroyed)
                     heldEntity.Kill();
             }
