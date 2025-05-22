@@ -12,7 +12,7 @@ using UnityEngine;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "misticos", "2.2.0")]
+    [Info("Skins", "misticos", "2.2.1")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -23,6 +23,8 @@ namespace Oxide.Plugins
         private Dictionary<ulong, ContainerController> _controllers = new Dictionary<ulong, ContainerController>();
         private Dictionary<uint, ContainerController> _controllersPerContainer =
             new Dictionary<uint, ContainerController>();
+
+        private HashSet<uint> _itemAttachmentContainers = new HashSet<uint>();
 
         private const string PermissionUse = "skins.use";
         private const string PermissionAdmin = "skins.admin";
@@ -550,7 +552,7 @@ namespace Oxide.Plugins
             Puts($"OnItemRemovedFromContainer: {item.info.shortname} (slot {item.position})");
 #endif
 
-            container.SetupContent(item);
+            container.OnItemTaken(item);
 
             Interface.CallHook("OnItemSkinChanged", player, item);
 
@@ -588,9 +590,17 @@ namespace Oxide.Plugins
 
         private object CanMoveItem(Item item, PlayerInventory playerLoot, uint targetContainerId, int slot, int amount)
         {
-            ContainerController containerFrom, containerTo = null;
-            if ((item.parent == null || !_controllersPerContainer.TryGetValue(item.parent.uid, out containerFrom)) &&
-                !_controllersPerContainer.TryGetValue(targetContainerId, out containerTo))
+            if (_itemAttachmentContainers.Contains(targetContainerId))
+            {
+#if DEBUG
+                Puts("// CanMoveItem: Preventing attachments abuse");
+#endif
+                return false;
+            }
+
+            ContainerController containerFrom, containerTo;
+            if (!_controllersPerContainer.TryGetValue(targetContainerId, out containerTo) &&
+                (item.parent == null || !_controllersPerContainer.TryGetValue(item.parent.uid, out containerFrom)))
                 return null;
 
 #if DEBUG
@@ -924,6 +934,17 @@ namespace Oxide.Plugins
 
             #endregion
 
+            private void AddItemContainer(Item item)
+            {
+                if (item?.contents == null)
+                    return;
+
+                if (item.contents.uid == 0)
+                    return;
+
+                _ins._itemAttachmentContainers.Add(item.contents.uid);
+            }
+
             public void GiveItemBack(Item itemOverride = null)
             {
                 if (!IsValid())
@@ -944,6 +965,14 @@ namespace Oxide.Plugins
                 }
 
                 MoveItem(item, Owner.inventory.containerMain);
+                OnItemTaken(item);
+            }
+
+            public void OnItemTaken(Item item)
+            {
+                if (item?.contents != null)
+                    _ins._itemAttachmentContainers.Remove(item.contents.uid);
+                
                 SetupContent(item);
             }
 
@@ -1205,6 +1234,9 @@ namespace Oxide.Plugins
                 {
                     item.info.itemMods[i].OnParentChanged(item);
                 }
+                
+                if (container == Container)
+                    AddItemContainer(item);
             }
 
             private void RemoveItem(Item item)
