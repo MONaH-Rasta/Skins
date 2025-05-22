@@ -10,7 +10,7 @@ using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "Iv Misticos", "2.0.2")]
+    [Info("Skins", "Iv Misticos", "2.0.3")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -295,8 +295,12 @@ namespace Oxide.Plugins
             if (itemContainer.itemList.Count != 1)
             {
                 item.position = -1;
+                item.parent.itemList.Remove(item);
+                item.parent = null;
                 container.GiveItemBack();
                 container.Clear();
+                item.parent = container.Container;
+                item.parent.itemList.Add(item);
             }
 
             item.position = 0;
@@ -311,24 +315,11 @@ namespace Oxide.Plugins
             
             var player = itemContainer.entityOwner as BasePlayer;
             var container = ContainerController.Find(itemContainer);
-            if (container == null)
+            if (container == null || player == null || container.Owner != player)
             {
-                PrintDebug("Container not found");
                 return;
             }
 
-            if (player == null)
-            {
-                PrintDebug("Player not found");
-                return;
-            }
-
-            if (container.Owner != player)
-            {
-                PrintDebug("Wrong container owner");
-                return;
-            }
-            
             PrintDebug($"OnItemRemovedFromContainer {item.info.shortname} {item.position}");
             
             container.SetupContent(item);
@@ -337,11 +328,11 @@ namespace Oxide.Plugins
 
         private void OnPlayerLootEnd(PlayerLoot loot)
         {
-            PrintDebug("OnLootEntityEnd");
-
             var player = loot.gameObject.GetComponent<BasePlayer>();
             if (player != loot.entitySource)
                 return;
+            
+            PrintDebug("OnLootEntityEnd");
             
             var container = ContainerController.Find(player);
             container?.Close();
@@ -363,7 +354,13 @@ namespace Oxide.Plugins
         {
             PrintDebug(
                 $"Move {item.info.shortname} ({item.amount}) from {item.parent?.uid ?? 0} to {targetContainerId} in {slot} ({amount})");
-            
+
+            if (item.parent?.uid == targetContainerId)
+            {
+                PrintDebug("Move Ignoring same containers");
+                return null;
+            }
+
             var containerFrom = ContainerController.Find(item.parent);
             var containerTo = ContainerController.Find(targetContainerId);
             return CanMoveItemFrom(containerFrom, item, playerLoot, slot, amount) ??
