@@ -1,5 +1,6 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
+using System.Linq;
 using Newtonsoft.Json;
 using Oxide.Core;
 using Oxide.Core.Libraries.Covalence;
@@ -10,7 +11,7 @@ using Object = UnityEngine.Object;
 
 namespace Oxide.Plugins
 {
-    [Info("Skins", "Iv Misticos", "2.0.7")]
+    [Info("Skins", "Iv Misticos", "2.1.0")]
     [Description("Change workshop skins of items easily")]
     class Skins : RustPlugin
     {
@@ -239,7 +240,7 @@ namespace Oxide.Plugins
         {
             for (var i = 0; i < BasePlayer.activePlayerList.Count; i++)
             {
-                OnPlayerInit(BasePlayer.activePlayerList[i]);
+                OnPlayerConnected(BasePlayer.activePlayerList[i]);
             }
 
             AddCovalenceCommand(_config.Command, nameof(CommandSkin));
@@ -255,7 +256,7 @@ namespace Oxide.Plugins
             _ins = null;
         }
 
-        private void OnPlayerInit(BasePlayer player)
+        private void OnPlayerConnected(BasePlayer player)
         {
             if (ContainerController.FindIndex(player) != -1)
                 return;
@@ -269,9 +270,7 @@ namespace Oxide.Plugins
             if (index == -1)
                 return;
             
-            var container = _controllers[index];
-            container.Destroy();
-            
+            _controllers[index].Destroy();
             _controllers.RemoveAt(index);
         }
 
@@ -347,6 +346,9 @@ namespace Oxide.Plugins
             PrintDebug($"OnItemRemovedFromContainer: {item.info.shortname} (slot {item.position})");
 
             container.SetupContent(item);
+
+            Interface.CallHook("OnItemSkinChanged", player, item);
+            
             container.Clear();
         }
 
@@ -450,9 +452,7 @@ namespace Oxide.Plugins
                     if (args.Length != 2 || !isPlayer || !int.TryParse(args[1], out page))
                         break;
 
-                    var container = ContainerController.Find(basePlayer);
-
-                    container?.UpdateContent(page);
+                    ContainerController.Find(basePlayer)?.UpdateContent(page);
                     break;
                 }
                     
@@ -474,7 +474,7 @@ namespace Oxide.Plugins
                         break;
                     }
 
-                    timer.Once(0.5f, () => container.Show());
+                    basePlayer.Invoke(container.Show, 0.5f);
                     break;
                 }
 
@@ -1005,10 +1005,9 @@ namespace Oxide.Plugins
             {
                 PrintDebug("Clearing container");
                 
-                for (var i = 0; i < Container.itemList.Count; i++)
+                for (var i = Container.itemList.Count - 1; i >= 0; i--)
                 {
-                    var item = Container.itemList[i];
-                    RemoveItem(item);
+                    RemoveItem(Container.itemList[i]);
                 }
                 
                 Container.itemList.Clear();
@@ -1042,18 +1041,18 @@ namespace Oxide.Plugins
                     return;
                 }
 
-                var skinData = Configuration.SkinItem.Find(source.info.shortname);
-                if (skinData == null)
-                    return;
-
-                var skins = skinData.Skins;
+                var skins = new List<ulong>(Configuration.SkinItem.Find(source.info.shortname)?.Skins ??
+                                            Enumerable.Empty<ulong>());
+                
                 var perPage = Container.capacity - 1;
 
                 if (page < 0)
                     page = 0;
+
+                Interface.CallHook("OnFetchSkins", Owner, source.info, skins);
                 
                 var offset = perPage * page;
-                if (offset > skinData.Skins.Count)
+                if (offset > skins.Count)
                 {
                     page--;
                     offset -= perPage;
@@ -1162,7 +1161,7 @@ namespace Oxide.Plugins
                 
                 if (item.contents != null)
                 {
-                    for (var i = 0; i < item.contents.itemList.Count; i++)
+                    for (var i = item.contents.itemList.Count - 1; i >= 0; i--)
                     {
                         RemoveItem(item.contents.itemList[i]);
                     }
@@ -1172,7 +1171,6 @@ namespace Oxide.Plugins
                 
                 item.RemoveFromWorld();
 
-                item.parent?.itemList?.Remove(item);
                 item.parent = null;
                 
                 var heldEntity = item.GetHeldEntity();
